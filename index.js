@@ -1,5 +1,7 @@
 const express = require('express');
 const app = express();
+const cors = require('cors')
+
 const port = 3000;
 require('dotenv').config();
 
@@ -7,6 +9,38 @@ require('dotenv').config();
 app.get('/', (req, res) => {
     res.send("CivicCare is running")
 })
+
+const admin = require("firebase-admin");
+
+
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
+const verifyFBToken = async (req, res, next) => {
+    const token = req.headers.authorization;
+    // console.log(token);
+
+    if (!token) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
+
+    try {
+        const idToken = token.split(' ')[1];
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        console.log('decoded in the token', decoded);
+        req.decoded_email = decoded.email;
+        next();
+    }
+    catch (err) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
+
+
+}
 
 
 const { MongoClient, ServerApiVersion } = require('mongodb');
@@ -21,16 +55,30 @@ const client = new MongoClient(uri, {
     }
 });
 
+// Middleware 
+app.use(cors())
+app.use(express.json())
+
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
         await client.connect();
+
+        const db = client.db('civic-care-db');
+        const userCollection = db.collection('users')
+
+        app.post('/users', (req,res) =>{
+            const user = req.body;
+            user.role = "user";
+            user.createdAt = new Date();
+
+        })
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
-        await client.close();
+        // await client.close();
     }
 }
 run().catch(console.dir);
