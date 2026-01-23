@@ -43,7 +43,7 @@ const verifyFBToken = async (req, res, next) => {
 }
 
 
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@crud-server-practices.rbtbow5.mongodb.net/?appName=crud-server-practices`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -168,6 +168,110 @@ async function run() {
                 res.status(500).send({ message: 'Failed to create issue' });
             }
         });
+
+        app.get('/issues/:id', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
+                if (!issue) return res.status(404).send({ message: "Issue not found" });
+                res.send(issue);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to fetch issue" });
+            }
+        });
+
+
+
+        // Edit issue (only pending issues by the creator)
+        app.patch('/issues/:id', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const updates = req.body; 
+                const userEmail = updates.editorEmail; 
+
+                // find the issue
+                const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
+                if (!issue) return res.status(404).send({ message: "Issue not found" });
+
+                // check if the user is the creator and issue is pending
+                if (issue.senderEmail !== userEmail) {
+                    return res.status(403).send({ message: "You can only edit your own issues" });
+                }
+                if (issue.status !== "pending") {
+                    return res.status(403).send({ message: "Only pending issues can be edited" });
+                }
+
+                
+                const result = await issuesCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: updates }
+                );
+
+                res.send(result);
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to update issue" });
+            }
+        });
+
+        // Boost issue priority
+        app.post('/issues/:id/boost', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { boostedBy } = req.body; 
+
+                const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
+                if (!issue) return res.status(404).send({ message: "Issue not found" });
+
+                if (issue.priority === "high") {
+                    return res.status(400).send({ message: "Issue already boosted" });
+                }
+
+                const boostEntry = {
+                    status: "Pending",
+                    message: "Issue priority boosted",
+                    updatedBy: boostedBy,
+                    timestamp: new Date()
+                };
+
+                const result = await issuesCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { priority: "high" }, $push: { timeline: boostEntry } }
+                );
+
+                res.send(result);
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to boost issue" });
+            }
+        });
+
+        app.delete('/issues/:id', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { userEmail } = req.body; 
+
+                const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
+                if (!issue) return res.status(404).send({ message: "Issue not found" });
+
+                if (issue.senderEmail !== userEmail) {
+                    return res.status(403).send({ message: "You can only delete your own issues" });
+                }
+
+                await issuesCollection.deleteOne({ _id: new ObjectId(id) });
+
+                res.send({ message: "Issue deleted successfully" });
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to delete issue" });
+            }
+        });
+
+
 
 
         // Send a ping to confirm a successful connection
