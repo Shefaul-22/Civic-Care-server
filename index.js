@@ -65,24 +65,111 @@ async function run() {
         await client.connect();
 
         const db = client.db('civic-care-db');
-        const userCollection = db.collection('users')
+        const usersCollection = db.collection('users')
+        const issuesCollection = db.collection('issues')
 
-        app.post('/users', async(req, res) => {
+        app.post('/users', async (req, res) => {
             const user = req.body;
-            user.role = "user";
+            user.role = "freeuser";
             user.createdAt = new Date();
             const email = user.email;
-            const userExists = await userCollection.findOne({ email })
+            const userExists = await usersCollection.findOne({ email })
 
             if (userExists) {
                 return res.send({ message: 'user exists' })
             }
 
-            const result = await userCollection.insertOne(user);
+            const result = await usersCollection.insertOne(user);
             res.send(result);
 
-
         })
+
+        app.patch('/users/premium', async (req, res) => {
+            const email = req.body.email;
+
+
+            const filter = { email: email };
+
+            const updateQuery = {
+                $set: {
+                    role: 'premium',
+                    premiumAt: new Date()
+                }
+            };
+
+
+            const result = await usersCollection.updateOne(filter, updateQuery);
+
+
+            if (result.matchedCount === 0) {
+                return res.status(404).send({ message: "User not found" });
+            }
+
+            res.send({ message: "User upgraded to premium", result });
+
+        });
+
+        // Get current user's issue count
+        app.get('/users/:email/issues/count', async (req, res) => {
+            try {
+                const email = req.params.email;
+                const count = await issuesCollection.countDocuments({ senderEmail: email });
+
+                //  get role
+                const user = await usersCollection.findOne({ email });
+
+                if (!user) return res.status(404).send({ message: "User not found" });
+
+                res.send({ count, role: user.role });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to get issue count" });
+            }
+        });
+
+
+
+        // Issues related api
+        app.post('/issues', async (req, res) => {
+            try {
+                const issue = req.body;
+                const email = issue.senderEmail;
+
+                //find user
+                const user = await usersCollection.findOne({ email });
+
+                if (!user) {
+                    return res.status(404).send({ message: 'User not found' });
+                }
+
+                // count user's total submitted issues
+                const issueCount = await issuesCollection.countDocuments({
+                    senderEmail: email
+                });
+
+                // Free user limit check
+                if (user.role !== 'premium' && issueCount >= 3) {
+                    return res.status(403).send({
+                        message: 'Free user issue limit reached',
+                        limitReached: true
+                    });
+                }
+
+                // create issue
+                issue.createdAt = new Date();
+                issue.priority = 'low';
+                issue.status = 'pending';
+
+                const result = await issuesCollection.insertOne(issue);
+                res.send(result);
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: 'Failed to create issue' });
+            }
+        });
+
+
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
