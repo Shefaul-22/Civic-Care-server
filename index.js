@@ -42,6 +42,30 @@ const verifyFBToken = async (req, res, next) => {
 
 }
 
+const verifyAdmin = async (req, res, next) => {
+    const token = req.headers.authorization;
+    if (!token) return res.status(401).send({ message: 'Unauthorized access' });
+
+    try {
+        const idToken = token.split(' ')[1];
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        req.decoded_email = decoded.email;
+
+        // check role in usersCollection
+        const user = await usersCollection.findOne({ email: decoded.email });
+        if (!user || user.role !== 'admin') {
+            return res.status(403).send({ message: 'Forbidden: Admins only' });
+        }
+
+        req.user = user; 
+        next();
+    } catch (err) {
+        console.error(err);
+        res.status(401).send({ message: 'Unauthorized access' });
+    }
+};
+
+
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@crud-server-practices.rbtbow5.mongodb.net/?appName=crud-server-practices`;
@@ -67,7 +91,7 @@ async function run() {
         const db = client.db('civic-care-db');
         const usersCollection = db.collection('users')
         const issuesCollection = db.collection('issues')
-        const staffsCollection = db.collection('staffs')
+
 
         app.post('/users', async (req, res) => {
             const user = req.body;
@@ -274,27 +298,120 @@ async function run() {
 
         // Staffs related api
 
-        app.post('/staffs', async (req, res) => {
+        // app.post('/staffs', async (req, res) => {
 
-            const staffs = req.body;
+        //     const staffs = req.body;
 
-            const email = staffs.email;
-            console.log(email);
+        //     const email = staffs.email;
+        //     console.log(email);
 
-            const existingStaff = await staffsCollection.findOne({email});
+        //     const existingStaff = await usersCollection.findOne({email});
 
-            if (existingStaff) {
-                return res.send({
-                    success: false,
-                    message: "You have already applied with this email"
+        //     if (existingStaff) {
+        //         return res.send({
+        //             success: false,
+        //             message: "You have already applied with this email"
+        //         });
+        //     }
+        //     staffs.status = "pending"
+        //     staffs.role = "user"
+        //     staffs.createdAt = new Date();
+
+        //     const result = await usersCollection.insertOne(staffs)
+        //     res.send(result);
+        // })
+
+        // -- Admin related apis ---------
+
+        // Add new staff
+        app.post('/admin/staffs', async (req, res) => {
+            try {
+                const { name, email, password, phone, photo } = req.body;
+                const normalizedEmail = email.trim().toLowerCase();
+
+                //  Duplicate check
+                const existingStaff = await usersCollection.findOne({ email: normalizedEmail });
+                if (existingStaff) {
+                    return res.send({ success: false, message: "Staff already exists" });
+                }
+
+                // create staff account using firebase
+                const firebaseUser = await admin.auth().createUser({
+                    email: normalizedEmail,
+                    password,
+                    displayName: name,
+                    photoURL: photo,
                 });
-            }
-            staffs.status = "pending"
-            staffs.createdAt = new Date();
 
-            const result = await staffsCollection.insertOne(staffs)
-            res.send(result);
-        })
+
+                const staff = {
+                    uid: firebaseUser.uid,
+                    name,
+                    email: normalizedEmail,
+                    phone,
+                    photo,
+                    role: "staff",
+                    createdAt: new Date(),
+                };
+
+                const result = await usersCollection.insertOne(staff);
+
+                res.send({ success: true, insertedId: result.insertedId });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ success: false, message: error.message });
+            }
+        });
+
+        // Get all staff
+        app.get('/admin/staffs', async (req, res) => {
+            try {
+                const staffs = await usersCollection.find({ role: "staff" }).toArray();
+                res.send(staffs);
+            } catch (err) {
+                res.status(500).send({ success: false, message: err.message });
+            }
+        });
+
+        // update staff info
+        app.patch('/admin/staffs/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const updateData = req.body;
+
+                const result = await usersCollection.updateOne(
+                    { _id: new ObjectId(id), role: "staff" },
+                    { $set: updateData }
+                );
+
+                res.send(result);
+            } catch (err) {
+                res.status(500).send({ success: false, message: err.message });
+            }
+        });
+
+        // Delete staff
+        app.delete('/admin/staffs/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+
+                // Find staff by using _id
+                const staff = await usersCollection.findOne({ _id: new ObjectId(id), role: "staff" });
+                if (!staff) return res.status(404).send({ success: false, message: "Staff not found" });
+
+                // Delete Firebase Auth user
+                await admin.auth().deleteUser(staff.uid);
+
+                // Delete from usersCollection
+                await usersCollection.deleteOne({ _id: new ObjectId(id) });
+
+                res.send({ success: true });
+            } catch (err) {
+                res.status(500).send({ success: false, message: err.message });
+            }
+        });
+
+
 
 
 
