@@ -67,6 +67,7 @@ async function run() {
         const db = client.db('civic-care-db');
         const usersCollection = db.collection('users')
         const issuesCollection = db.collection('issues')
+        const staffsCollection = db.collection('staffs')
 
         app.post('/users', async (req, res) => {
             const user = req.body;
@@ -187,8 +188,8 @@ async function run() {
         app.patch('/issues/:id', async (req, res) => {
             try {
                 const { id } = req.params;
-                const updates = req.body; 
-                const userEmail = updates.editorEmail; 
+                const updates = req.body;
+                const userEmail = updates.editorEmail;
 
                 // find the issue
                 const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
@@ -202,7 +203,7 @@ async function run() {
                     return res.status(403).send({ message: "Only pending issues can be edited" });
                 }
 
-                
+
                 const result = await issuesCollection.updateOne(
                     { _id: new ObjectId(id) },
                     { $set: updates }
@@ -220,7 +221,7 @@ async function run() {
         app.post('/issues/:id/boost', async (req, res) => {
             try {
                 const { id } = req.params;
-                const { boostedBy } = req.body; 
+                const { boostedBy } = req.body;
 
                 const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
                 if (!issue) return res.status(404).send({ message: "Issue not found" });
@@ -252,7 +253,7 @@ async function run() {
         app.delete('/issues/:id', async (req, res) => {
             try {
                 const { id } = req.params;
-                const { userEmail } = req.body; 
+                const { userEmail } = req.body;
 
                 const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
                 if (!issue) return res.status(404).send({ message: "Issue not found" });
@@ -270,6 +271,30 @@ async function run() {
                 res.status(500).send({ message: "Failed to delete issue" });
             }
         });
+
+        // Staffs related api
+
+        app.post('/staffs', async (req, res) => {
+
+            const staffs = req.body;
+
+            const email = staffs.email;
+            console.log(email);
+
+            const existingStaff = await staffsCollection.findOne({email});
+
+            if (existingStaff) {
+                return res.send({
+                    success: false,
+                    message: "You have already applied with this email"
+                });
+            }
+            staffs.status = "pending"
+            staffs.createdAt = new Date();
+
+            const result = await staffsCollection.insertOne(staffs)
+            res.send(result);
+        })
 
 
 
