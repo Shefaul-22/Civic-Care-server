@@ -221,10 +221,18 @@ async function run() {
 
         app.get('/issues/:id', async (req, res) => {
             try {
+
                 const { id } = req.params;
+
                 const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
-                if (!issue) return res.status(404).send({ message: "Issue not found" });
+
+                if (!issue) {
+                    return res.status(404).send({ message: "Issue not found" });
+                }
+
                 res.send(issue);
+
+
             } catch (error) {
                 console.error(error);
                 res.status(500).send({ message: "Failed to fetch issue" });
@@ -243,7 +251,7 @@ async function run() {
                 const userEmail = req.decoded_email;
 
                 const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
-                
+
                 if (!issue) {
                     return res.status(404).send({ message: "Issue not found" });
                 }
@@ -254,7 +262,7 @@ async function run() {
                 }
 
                 if (issue.status !== "pending") {
-                    return res.status(403).send({ message: "Only pending issues can be edited" });
+                    return res.status(403).send({ message: "Only pending issues can be edited !" });
                 }
 
                 // allow only editable fields
@@ -366,7 +374,7 @@ async function run() {
             }
         });
 
-        
+
         // -- Admin related apis ---------
 
         // Add new staff
