@@ -459,7 +459,7 @@ async function run() {
             res.send(result);
         });
 
-        app.patch('/admin/issues/:id/reject', verifyFBToken, verifyAdmin, async (req, res) => {
+        app.patch('/admin/issues/:id/reject', verifyFBToken,  async (req, res) => {
             const issueId = req.params.id;
 
             const issue = await issuesCollection.findOne({ _id: new ObjectId(issueId) });
@@ -471,14 +471,13 @@ async function run() {
             const result = await issuesCollection.updateOne(
                 { _id: new ObjectId(issueId) },
                 {
-                    $set: { status: "rejected" },
-                    $push: {
-                        timeline: {
-                            action: "rejected",
-                            message: "Issue rejected by admin",
-                            at: new Date()
-                        }
-                    }
+                    $set: { 
+                        status: "rejected" ,
+                        statusMessage: "Issue rejected by admin",
+                        updatedAt: new Date(),
+
+                    },
+                    
                 }
             );
 
