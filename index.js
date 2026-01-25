@@ -31,7 +31,7 @@ const verifyFBToken = async (req, res, next) => {
     try {
         const idToken = token.split(' ')[1];
         const decoded = await admin.auth().verifyIdToken(idToken);
-        console.log('decoded in the token', decoded);
+        // console.log('decoded in the token', decoded);
         req.decoded_email = decoded.email;
         next();
     }
@@ -194,6 +194,31 @@ async function run() {
             }
         });
 
+        app.get("/issues", verifyFBToken, async (req, res) => {
+            try {
+                const userEmail = req.decoded_email; // logged-in user
+                const { status, category } = req.query; // optional filters
+
+                // MongoDB query object
+                let query = { senderEmail: userEmail };
+
+                // add optional filters
+                if (status) query.status = status;
+                if (category) query.category = category;
+
+                const issues = await issuesCollection
+                    .find(query)
+                    .sort({ createdAt: -1 }) // latest first
+                    .toArray();
+
+                res.send(issues);
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: "Failed to fetch issues" });
+            }
+        });
+
+
         app.get('/issues/:id', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -209,37 +234,72 @@ async function run() {
 
 
         // Edit issue (only pending issues by the creator)
-        app.patch('/issues/:id', async (req, res) => {
+        app.patch('/issues/:id', verifyFBToken, async (req, res) => {
             try {
                 const { id } = req.params;
                 const updates = req.body;
-                const userEmail = updates.editorEmail;
 
-                // find the issue
+                // logged-in user from token
+                const userEmail = req.decoded_email;
+
                 const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
-                if (!issue) return res.status(404).send({ message: "Issue not found" });
+                
+                if (!issue) {
+                    return res.status(404).send({ message: "Issue not found" });
+                }
 
-                // check if the user is the creator and issue is pending
+                // issue ownership check 
                 if (issue.senderEmail !== userEmail) {
                     return res.status(403).send({ message: "You can only edit your own issues" });
                 }
+
                 if (issue.status !== "pending") {
                     return res.status(403).send({ message: "Only pending issues can be edited" });
                 }
 
+                // allow only editable fields
 
                 const result = await issuesCollection.updateOne(
+
                     { _id: new ObjectId(id) },
-                    { $set: updates }
+
+                    {
+
+                        $set: {
+                            title: updates.title,
+                            category: updates.category,
+                            issueDescription: updates.issueDescription,
+                            photoURL: updates.photoURL,
+                            updatedAt: new Date(),
+                        }
+                    }
                 );
 
-                res.send(result);
+                // Only update editable fields
+                // const updateData = {
+                //     title: updates.title,
+                //     category: updates.category,
+                //     issueDescription: updates.issueDescription,
+                //     updatedAt: new Date(),
+                // };
 
+                // // new image uploaded
+                // if (updates.photoURL) {
+                //     updateData.photoURL = updates.photoURL;
+                // }
+
+                // const result = await issuesCollection.updateOne(
+                //     { _id: new ObjectId(id) },
+                //     { $set: updateData }
+                // );
+
+                res.send(result);
             } catch (error) {
-                console.error(error);
+                console.error("EDIT ISSUE ERROR:", error);
                 res.status(500).send({ message: "Failed to update issue" });
             }
         });
+
 
         // Boost issue priority
         app.post('/issues/:id/boost', async (req, res) => {
@@ -274,13 +334,23 @@ async function run() {
             }
         });
 
-        app.delete('/issues/:id', async (req, res) => {
+        app.delete('/issues/:id', verifyFBToken, async (req, res) => {
+
+            // console.log("REQ USER:", req.user);
+
+
             try {
+
                 const { id } = req.params;
-                const { userEmail } = req.body;
+                const userEmail = req.decoded_email;
+                // const { userEmail } = req.user.email;
+                // console.log(userEmail);
 
                 const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
-                if (!issue) return res.status(404).send({ message: "Issue not found" });
+
+                if (!issue) {
+                    return res.status(404).send({ message: "Issue not found" });
+                }
 
                 if (issue.senderEmail !== userEmail) {
                     return res.status(403).send({ message: "You can only delete your own issues" });
@@ -296,31 +366,7 @@ async function run() {
             }
         });
 
-        // Staffs related api
-
-        // app.post('/staffs', async (req, res) => {
-
-        //     const staffs = req.body;
-
-        //     const email = staffs.email;
-        //     console.log(email);
-
-        //     const existingStaff = await usersCollection.findOne({email});
-
-        //     if (existingStaff) {
-        //         return res.send({
-        //             success: false,
-        //             message: "You have already applied with this email"
-        //         });
-        //     }
-        //     staffs.status = "pending"
-        //     staffs.role = "user"
-        //     staffs.createdAt = new Date();
-
-        //     const result = await usersCollection.insertOne(staffs)
-        //     res.send(result);
-        // })
-
+        
         // -- Admin related apis ---------
 
         // Add new staff
@@ -459,7 +505,7 @@ async function run() {
             res.send(result);
         });
 
-        app.patch('/admin/issues/:id/reject', verifyFBToken,  async (req, res) => {
+        app.patch('/admin/issues/:id/reject', verifyFBToken, async (req, res) => {
             const issueId = req.params.id;
 
             const issue = await issuesCollection.findOne({ _id: new ObjectId(issueId) });
@@ -471,13 +517,13 @@ async function run() {
             const result = await issuesCollection.updateOne(
                 { _id: new ObjectId(issueId) },
                 {
-                    $set: { 
-                        status: "rejected" ,
+                    $set: {
+                        status: "rejected",
                         statusMessage: "Issue rejected by admin",
                         updatedAt: new Date(),
 
                     },
-                    
+
                 }
             );
 
@@ -511,7 +557,7 @@ async function run() {
         });
 
 
-        app.patch('/staff/issues/:id/status',verifyFBToken, async (req, res) => {
+        app.patch('/staff/issues/:id/status', verifyFBToken, async (req, res) => {
             const id = req.params.id;
             const { status, statusMessage } = req.body;
             const staffEmail = req.decoded_email;
