@@ -57,7 +57,7 @@ const verifyAdmin = async (req, res, next) => {
             return res.status(403).send({ message: 'Forbidden: Admins only' });
         }
 
-        req.user = user; 
+        req.user = user;
         next();
     } catch (err) {
         console.error(err);
@@ -95,7 +95,7 @@ async function run() {
 
         app.post('/users', async (req, res) => {
             const user = req.body;
-            user.role = "freeuser";
+            user.role = "user";
             user.createdAt = new Date();
             const email = user.email;
             const userExists = await usersCollection.findOne({ email })
@@ -410,6 +410,82 @@ async function run() {
                 res.status(500).send({ success: false, message: err.message });
             }
         });
+
+        // ----admin all Issues related apis---
+
+        app.get('/admin/issues', async (req, res) => {
+            const result = await issuesCollection.find()
+                .sort({ priority: -1, createdAt: -1 })
+                .toArray();
+
+            res.send(result);
+        });
+
+        app.get('/admin/staffs', async (req, res) => {
+            const result = await usersCollection.find({ role: "staff" }).toArray();
+            res.send(result);
+        });
+
+
+        app.patch('/admin/issues/:id/assign', async (req, res) => {
+            const issueId = req.params.id;
+            const { staffId, name, email } = req.body;
+
+            const issue = await issuesCollection.findOne({ _id: new ObjectId(issueId) });
+
+
+            if (issue.assignedStaff) {
+                return res.status(400).send({ message: "Staff already assigned" });
+            }
+
+            const result = await issuesCollection.updateOne(
+                { _id: new ObjectId(issueId) },
+                {
+                    $set: {
+                        assignedStaff: { staffId, name, email }
+                    },
+                    $push: {
+                        timeline: {
+                            action: "assigned",
+                            message: `Assigned to ${name}`,
+                            at: new Date()
+                        }
+                    }
+                }
+            );
+
+            res.send(result);
+        });
+
+        app.patch('/admin/issues/:id/reject', verifyFBToken, verifyAdmin, async (req, res) => {
+            const issueId = req.params.id;
+
+            const issue = await issuesCollection.findOne({ _id: new ObjectId(issueId) });
+
+            if (issue.status !== "pending") {
+                return res.status(400).send({ message: "Only pending issues can be rejected" });
+            }
+
+            const result = await issuesCollection.updateOne(
+                { _id: new ObjectId(issueId) },
+                {
+                    $set: { status: "rejected" },
+                    $push: {
+                        timeline: {
+                            action: "rejected",
+                            message: "Issue rejected by admin",
+                            at: new Date()
+                        }
+                    }
+                }
+            );
+
+            res.send(result);
+        });
+
+
+
+
 
 
 
