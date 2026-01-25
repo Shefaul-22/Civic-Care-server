@@ -182,7 +182,7 @@ async function run() {
 
                 // create issue
                 issue.createdAt = new Date();
-                issue.priority = 'low';
+                issue.priority = 'normal';
                 issue.status = 'pending';
 
                 const result = await issuesCollection.insertOne(issue);
@@ -442,15 +442,17 @@ async function run() {
                 { _id: new ObjectId(issueId) },
                 {
                     $set: {
-                        assignedStaff: { staffId, name, email }
+                        staffId: staffId,
+                        staffName: name,
+                        staffEmail: email,
+                        status: issue.status,
+                        statusMessage: `Assigned to ${name}`,
+                        updatedAt: new Date()
                     },
-                    $push: {
-                        timeline: {
-                            action: "assigned",
-                            message: `Assigned to ${name}`,
-                            at: new Date()
-                        }
-                    }
+
+
+
+
                 }
             );
 
@@ -482,6 +484,81 @@ async function run() {
 
             res.send(result);
         });
+
+
+
+        // --- Staff related apis---
+
+
+        // get assigned issues for staff
+        app.get('/staff/issues', async (req, res) => {
+            const staffEmail = req.query.email;
+            const status = req.query.status;
+            const priority = req.query.priority;
+
+
+            let query = { staffEmail };
+            // console.log("query email :", staffEmail);
+
+            if (status) query.status = status;
+            if (priority) query.priority = priority;
+
+            const issues = await issuesCollection
+                .find(query)
+                .sort({ priority: -1, createdAt: -1 })
+                .toArray();
+
+            res.send(issues);
+        });
+
+
+        app.patch('/staff/issues/:id/status',verifyFBToken, async (req, res) => {
+            const id = req.params.id;
+            const { status, statusMessage } = req.body;
+            const staffEmail = req.decoded_email;
+            console.log(staffEmail);
+
+            const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
+            console.log(issue.staffEmail);
+            const assignedEmail = issue.staffEmail;
+
+            // only assigned staff can change status
+
+            if (!assignedEmail || !staffEmail) {
+                return res.status(403).send({ message: "Not authorized" });
+            }
+
+            if (assignedEmail.toLowerCase() !== staffEmail.toLowerCase()) {
+                return res.status(403).send({ message: "Not authorized" });
+            }
+
+
+            // allowed status flow
+            const allowedTransitions = {
+                pending: ['in-progress'],
+                'in-progress': ['working'],
+                working: ['resolved'],
+                resolved: ['closed'],
+            };
+
+            if (!allowedTransitions[issue.status]?.includes(status)) {
+                return res.status(400).send({ message: 'Invalid status transition' });
+            }
+
+            const updateResult = await issuesCollection.updateOne(
+                { _id: new ObjectId(id) },
+                {
+                    $set: {
+                        status: status,
+                        statusMessage: statusMessage
+                    },
+
+                }
+            );
+
+            res.send({ modifiedCount: updateResult.modifiedCount });
+        });
+
 
 
 
