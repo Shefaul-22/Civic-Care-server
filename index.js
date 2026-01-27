@@ -156,6 +156,7 @@ async function run() {
 
         // Issues related api
         app.post('/issues', async (req, res) => {
+
             try {
                 const issue = req.body;
                 const email = issue.senderEmail;
@@ -180,10 +181,15 @@ async function run() {
                     });
                 }
 
-                // create issue
+                // Add issue related field
                 issue.createdAt = new Date();
                 issue.priority = 'normal';
                 issue.status = 'pending';
+
+
+                issue.upvotes = 0;
+                issue.upvotedBy = [];
+
 
                 const result = await issuesCollection.insertOne(issue);
                 res.send(result);
@@ -194,10 +200,98 @@ async function run() {
             }
         });
 
-        app.get("/issues", verifyFBToken, async (req, res) => {
+
+        // Get all issues
+
+        // app.get('/issues', async (req, res) => {
+
+        //     const result = await issuesCollection.find().sort({ createdAt: -1 }).toArray();
+        //     res.send(result)
+        // })
+
+
+        // get all issues and search filter
+        app.get('/issues', async (req, res) => {
+            const { search, status, priority, category } = req.query;
+
+            let query = {};
+
+            if (search) {
+
+                query.$or = [
+                    { title: { $regex: search, $options: "i" } },
+                    { category: { $regex: search, $options: "i" } },
+                    { senderDistrict: { $regex: search, $options: "i" } }
+                ];
+            }
+
+            if (status) query.status = status;
+            if (priority) query.priority = priority;
+            if (category) query.category = category;
+
+            const result = await issuesCollection
+                .find(query)
+                .sort({ upvotes: -1, createdAt: -1 }) // boosted first
+                .toArray();
+
+            res.send(result);
+        });
+
+        // upvote issue
+        app.patch('/issues/:id/upvote', verifyFBToken, async (req, res) => {
+            
+            const issueId = req.params.id;
+            const userEmail = req.decoded_email;
+
+            const issueObjectId = new ObjectId(issueId);
+
+
+            const issue = await issuesCollection.findOne({ _id: issueObjectId });
+
+            if (!issue) {
+                return res.status(404).send({ message: "Issue not found" });
+            }
+
+            // User cannot upvote own issue
+            if (issue.senderEmail === userEmail) {
+                return res.status(403).send({ message: "You cannot upvote your own issue" });
+            }
+
+            //  if not already upvoted
+            const result = await issuesCollection.updateOne(
+
+                // { $inc: { upvotes: 1 }, $push: { upvotedBy: userEmail } },
+
+                {
+                    _id: issueObjectId,
+                    upvotedBy: { $ne: userEmail }
+                },
+
+                {
+                    $inc: { upvotes: 1 },
+                    $addToSet: { upvotedBy: userEmail }
+                }
+            );
+
+            if (result.modifiedCount === 0) {
+                return res.status(400).send({ message: "Already upvoted" });
+            }
+
+            res.send({
+                message: "Upvoted successfully",
+                upvotes: (issue.upvotes || 0) + 1
+            });
+        });
+
+
+
+        // Verified citizen submitted issues
+        app.get("/citizen-issues", verifyFBToken, async (req, res) => {
+
             try {
-                const userEmail = req.decoded_email; // logged-in user
-                const { status, category } = req.query; // optional filters
+                const userEmail = req.decoded_email;
+
+                const { status, category } = req.query;
 
                 // MongoDB query object
                 let query = { senderEmail: userEmail };
@@ -208,7 +302,7 @@ async function run() {
 
                 const issues = await issuesCollection
                     .find(query)
-                    .sort({ createdAt: -1 }) // latest first
+                    .sort({ createdAt: -1 })
                     .toArray();
 
                 res.send(issues);
@@ -220,6 +314,7 @@ async function run() {
 
 
         app.get('/issues/:id', async (req, res) => {
+
             try {
 
                 const { id } = req.params;
@@ -243,6 +338,7 @@ async function run() {
 
         // Edit issue (only pending issues by the creator)
         app.patch('/issues/:id', verifyFBToken, async (req, res) => {
+
             try {
                 const { id } = req.params;
                 const updates = req.body;
@@ -262,6 +358,7 @@ async function run() {
                 }
 
                 if (issue.status !== "pending") {
+
                     return res.status(403).send({ message: "Only pending issues can be edited !" });
                 }
 
