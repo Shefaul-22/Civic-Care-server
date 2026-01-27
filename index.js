@@ -2,8 +2,12 @@ const express = require('express');
 const app = express();
 const cors = require('cors')
 
-const port = 3000;
+const port = process.env.PORT || 3000;
 require('dotenv').config();
+
+
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 
 
 app.get('/', (req, res) => {
@@ -65,6 +69,17 @@ const verifyAdmin = async (req, res, next) => {
     }
 };
 
+const crypto = require("crypto");
+
+function generateTrackingId() {
+
+    const prefix = "CVCPS";  // brand
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const random = crypto.randomBytes(3).toString("hex").toUpperCase();
+    return `${prefix}-${date}-${random}`;
+}
+
+console.log(generateTrackingId());
 
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -91,6 +106,7 @@ async function run() {
         const db = client.db('civic-care-db');
         const usersCollection = db.collection('users')
         const issuesCollection = db.collection('issues')
+        const paymentCollection = db.collection('payments')
 
 
         app.post('/users', async (req, res) => {
@@ -239,7 +255,7 @@ async function run() {
 
         // upvote issue
         app.patch('/issues/:id/upvote', verifyFBToken, async (req, res) => {
-            
+
             const issueId = req.params.id;
             const userEmail = req.decoded_email;
 
@@ -405,39 +421,117 @@ async function run() {
             }
         });
 
+        // ---Payment related Api---
 
-        // Boost issue priority
-        app.post('/issues/:id/boost', async (req, res) => {
+        app.post('/create-checkout-session', async (req, res) => {
             try {
-                const { id } = req.params;
-                const { boostedBy } = req.body;
+                const issueInfo = req.body;
+                const { issueId, boostedBy, issueName } = issueInfo;
 
-                const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
-                if (!issue) return res.status(404).send({ message: "Issue not found" });
+                console.log("Received issue info:", issueInfo);
 
-                if (issue.priority === "high") {
-                    return res.status(400).send({ message: "Issue already boosted" });
-                }
 
-                const boostEntry = {
-                    status: "Pending",
-                    message: "Issue priority boosted",
-                    updatedBy: boostedBy,
-                    timestamp: new Date()
-                };
+                const cost = 100;
+                const amount = parseInt(cost) * 100; // BDT 
 
-                const result = await issuesCollection.updateOne(
-                    { _id: new ObjectId(id) },
-                    { $set: { priority: "high" }, $push: { timeline: boostEntry } }
-                );
+                const session = await stripe.checkout.sessions.create({
+                    payment_method_types: ['card'],
+                    line_items: [
+                        {
+                            price_data: {
+                                currency: 'bdt',
+                                unit_amount: amount,
+                                product_data: {
+                                    name: `Boost Issue: ${issueName}`,
+                                },
+                            },
+                            quantity: 1,
+                        },
+                    ],
+                    mode: 'payment',
+                    metadata: {
+                        issueId,
+                        boostedBy,
+                        trackingId: issueInfo.trackingId
+                    },
+                    customer_email: boostedBy, // user email
+                    success_url: `${process.env.SITE_DOMAIN}/issues/${issueId}?session_id={CHECKOUT_SESSION_ID}`,
+                    cancel_url: `${process.env.SITE_DOMAIN}/issues/${issueId}?payment=cancelled`,
+                });
 
-                res.send(result);
-
-            } catch (error) {
-                console.error(error);
-                res.status(500).send({ message: "Failed to boost issue" });
+                res.send({ url: session.url });
+            } catch (err) {
+                console.error("Stripe checkout error:", err);
+                res.status(500).send({ message: "Failed to create checkout session" });
             }
         });
+
+        app.patch('/payment-success', async (req, res) => {
+            try {
+                const sessionId = req.query.session_id;
+                console.log(sessionId);
+
+                // Retrieve session from Stripe
+                const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+                // Only proceed if payment is completed
+                if (session.payment_status !== 'paid') {
+                    return res.send({ success: false, message: 'Payment not completed' });
+                }
+
+                // metadata from checkout session
+                const { issueId, boostedBy, issueName } = session.metadata;
+
+                // Check if this payment already exists
+                const existingPayment = await paymentCollection.findOne({ transactionId: session.payment_intent });
+                if (existingPayment) {
+                    return res.send({
+                        success: true,
+                        message: 'Payment already recorded',
+                        transactionId: session.payment_intent
+                    });
+                }
+
+                //  Update the issue
+                const query = { _id: new ObjectId(issueId) };
+                const updateIssue = {
+                    $set: {
+                        priority: 'high',
+                        boostedAt: new Date(),
+                        boostedBy,
+                        statusMessage: `Issue boosted via payment by ${boostedBy}`,
+                    },
+                    
+                };
+                const resultIssue = await issuesCollection.updateOne(query, updateIssue);
+
+                // Insert into paymentCollection
+                const paymentRecord = {
+                    issueId,
+                    issueName,
+                    boostedBy,
+                    amount: session.amount_total / 100, // BDT
+                    currency: session.currency,
+                    transactionId: session.payment_intent,
+                    paymentStatus: session.payment_status,
+                    paidAt: new Date()
+                };
+                const resultPayment = await paymentCollection.insertOne(paymentRecord);
+
+                res.send({
+                    success: true,
+                    updatedIssue: resultIssue,
+                    paymentInfo: resultPayment,
+                    transactionId: session.payment_intent
+                });
+            } catch (err) {
+                console.error("Payment success error:", err);
+                res.status(500).send({ success: false, message: err.message });
+            }
+        });
+
+
+    
 
         app.delete('/issues/:id', verifyFBToken, async (req, res) => {
 
