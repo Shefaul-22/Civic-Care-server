@@ -125,30 +125,153 @@ async function run() {
 
         })
 
-        app.patch('/users/premium', async (req, res) => {
-            const email = req.body.email;
 
+        app.post('/create-premium-checkout-session', async (req, res) => {
+            try {
+                const { email, name } = req.body;
 
-            const filter = { email: email };
+                const cost = 1000; // Bdt 1000 for premium
+                const amount = cost * 100;
 
-            const updateQuery = {
-                $set: {
-                    role: 'premium',
-                    premiumAt: new Date()
-                }
-            };
+                const session = await stripe.checkout.sessions.create({
+                    payment_method_types: ['card'],
+                    line_items: [
+                        {
+                            price_data: {
+                                currency: 'bdt',
+                                unit_amount: amount,
+                                product_data: {
+                                    name: 'Premium Subscription',
+                                    description: 'Unlimited issue submission'
+                                }
+                            },
+                            quantity: 1
+                        }
+                    ],
+                    mode: 'payment',
+                    customer_email: email,
+                    metadata: {
+                        email,
+                        type: 'premium'
+                    },
+                    success_url: `${process.env.SITE_DOMAIN}/profile?session_id={CHECKOUT_SESSION_ID}`,
+                    cancel_url: `${process.env.SITE_DOMAIN}/profile?payment=cancelled`
+                });
 
-
-            const result = await usersCollection.updateOne(filter, updateQuery);
-
-
-            if (result.matchedCount === 0) {
-                return res.status(404).send({ message: "User not found" });
+                res.send({ url: session.url });
+            } catch (err) {
+                console.error('Premium checkout error:', err);
+                res.status(500).send({ message: 'Failed to create premium checkout session' });
             }
-
-            res.send({ message: "User upgraded to premium", result });
-
         });
+
+        app.patch('/premium-payment-success', async (req, res) => {
+            try {
+                const sessionId = req.query.session_id;
+
+                const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+                if (session.payment_status !== 'paid') {
+                    return res.send({ success: false, message: 'Payment not completed' });
+                }
+
+                const { email } = session.metadata;
+
+                // Optional: prevent duplicate premium payment
+                const alreadyPremium = await usersCollection.findOne({
+                    email,
+                    role: 'premiumUser'
+                });
+
+                if (alreadyPremium) {
+                    return res.send({
+                        success: true,
+                        message: 'User already premium'
+                    });
+                }
+
+                // Update user role
+                const updateUser = await usersCollection.updateOne(
+                    { email },
+                    {
+                        $set: {
+                            role: 'premiumUser',
+                            isPremium: true,
+                            premiumSince: new Date()
+                        }
+                    }
+                );
+
+                // Save payment history 
+                const premiumPayment = {
+                    email,
+                    amount: session.amount_total / 100,
+                    currency: session.currency,
+                    transactionId: session.payment_intent,
+                    paymentStatus: session.payment_status,
+                    type: 'premium',
+                    paidAt: new Date()
+                };
+
+                await paymentCollection.insertOne(premiumPayment);
+
+                res.send({
+                    success: true,
+                    message: 'Premium activated successfully'
+                });
+            } catch (err) {
+                console.error('Premium payment success error:', err);
+                res.status(500).send({ success: false, message: err.message });
+            }
+        });
+
+
+        // premium check
+
+        // app.patch('/users/premium', async (req, res) => {
+        //     const email = req.body.email;
+
+
+        //     const filter = { email: email };
+
+        //     const updateQuery = {
+        //         $set: {
+        //             role: 'premium',
+        //             premiumAt: new Date()
+        //         }
+        //     };
+
+
+        //     const result = await usersCollection.updateOne(filter, updateQuery);
+
+
+        //     if (result.matchedCount === 0) {
+        //         return res.status(404).send({ message: "User not found" });
+        //     }
+
+        //     res.send({ message: "User upgraded to premium", result });
+
+        // });
+
+        // get specific using query (email)
+        app.get('/users', async (req, res) => {
+
+            try {
+
+                const { email } = req.query;
+
+                if (!email) {
+                    return res.status(400).send({ message: "Email is required" });
+                }
+
+                const result = await usersCollection.findOne({ email });
+                res.send(result);
+
+            } catch (err) {
+                res.status(500).send({ message: "Failed to fetch user" });
+            }
+        });
+
 
         // Get current user's issue count
         app.get('/users/:email/issues/count', async (req, res) => {
@@ -501,7 +624,7 @@ async function run() {
                         boostedBy,
                         statusMessage: `Issue boosted via payment by ${boostedBy}`,
                     },
-                    
+
                 };
                 const resultIssue = await issuesCollection.updateOne(query, updateIssue);
 
@@ -531,7 +654,7 @@ async function run() {
         });
 
 
-    
+
 
         app.delete('/issues/:id', verifyFBToken, async (req, res) => {
 
