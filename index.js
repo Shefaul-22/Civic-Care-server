@@ -46,28 +46,7 @@ const verifyFBToken = async (req, res, next) => {
 
 }
 
-const verifyAdmin = async (req, res, next) => {
-    const token = req.headers.authorization;
-    if (!token) return res.status(401).send({ message: 'Unauthorized access' });
 
-    try {
-        const idToken = token.split(' ')[1];
-        const decoded = await admin.auth().verifyIdToken(idToken);
-        req.decoded_email = decoded.email;
-
-        // check role in usersCollection
-        const user = await usersCollection.findOne({ email: decoded.email });
-        if (!user || user.role !== 'admin') {
-            return res.status(403).send({ message: 'Forbidden: Admins only' });
-        }
-
-        req.user = user;
-        next();
-    } catch (err) {
-        console.error(err);
-        res.status(401).send({ message: 'Unauthorized access' });
-    }
-};
 
 const crypto = require("crypto");
 
@@ -106,7 +85,61 @@ async function run() {
         const db = client.db('civic-care-db');
         const usersCollection = db.collection('users')
         const issuesCollection = db.collection('issues')
-        const paymentCollection = db.collection('payments')
+        const paymentCollection = db.collection('payments');
+
+
+        const verifyAdmin = async (req, res, next) => {
+            const token = req.headers.authorization;
+            if (!token) return res.status(401).send({ message: 'Unauthorized access' });
+
+            try {
+                const idToken = token.split(' ')[1];
+                const decoded = await admin.auth().verifyIdToken(idToken);
+                req.decoded_email = decoded.email;
+
+                // check role in usersCollection
+                const user = await usersCollection.findOne({ email: decoded.email });
+                if (!user || user.role !== 'admin') {
+                    return res.status(403).send({ message: 'Forbidden: Admins only' });
+                }
+
+                req.user = user;
+                next();
+            } catch (err) {
+                console.error(err);
+                res.status(401).send({ message: 'Unauthorized access' });
+            }
+        };
+
+
+        const verifyBlockedUser = async (req, res, next) => {
+            try {
+                const token = req.headers.authorization;
+                if (!token) return res.status(401).send({ message: "Unauthorized" });
+
+                const idToken = token.split(" ")[1];
+                const decoded = await admin.auth().verifyIdToken(idToken);
+                const email = decoded.email;
+
+                // Find user in DB
+                const user = await usersCollection.findOne({ email });
+
+                if (!user) return res.status(404).send({ message: "User not found" });
+
+                // Check if blocked
+                if (user.userStatus === "blocked") {
+                    return res.status(403).send({ message: "User is blocked" });
+                }
+
+                // attach user to request
+                req.user = user;
+                next();
+            } catch (err) {
+                console.error(err);
+                res.status(401).send({ message: "Unauthorized" });
+            }
+        };
+
 
 
         app.post('/users', async (req, res) => {
@@ -294,7 +327,7 @@ async function run() {
 
 
         // Issues related api
-        app.post('/issues', async (req, res) => {
+        app.post('/issues', verifyFBToken, verifyBlockedUser, async (req, res) => {
 
             try {
                 const issue = req.body;
@@ -392,7 +425,7 @@ async function run() {
         });
 
         // upvote issue
-        app.patch('/issues/:id/upvote', verifyFBToken, async (req, res) => {
+        app.patch('/issues/:id/upvote', verifyFBToken,verifyBlockedUser, async (req, res) => {
 
             const issueId = req.params.id;
             const userEmail = req.decoded_email;
@@ -491,7 +524,7 @@ async function run() {
 
 
         // Edit issue (only pending issues by the creator)
-        app.patch('/issues/:id', verifyFBToken, async (req, res) => {
+        app.patch('/issues/:id', verifyFBToken, verifyBlockedUser, async (req, res) => {
 
             try {
                 const { id } = req.params;
@@ -561,7 +594,7 @@ async function run() {
 
         // ---Payment related Api---
 
-        app.post('/create-checkout-session', async (req, res) => {
+        app.post('/create-checkout-session',verifyFBToken,verifyBlockedUser, async (req, res) => {
             try {
                 const issueInfo = req.body;
                 const { issueId, boostedBy, issueName } = issueInfo;
