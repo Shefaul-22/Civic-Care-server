@@ -299,6 +299,8 @@ async function run() {
             try {
                 const issue = req.body;
                 const email = issue.senderEmail;
+                const name = issue.senderName;
+                console.log(name, issue);
 
                 //find user
                 const user = await usersCollection.findOne({ email });
@@ -313,7 +315,7 @@ async function run() {
                 });
 
                 // Free user limit check
-                if (user.role !== 'premium' && issueCount >= 3) {
+                if (user.role !== 'premiumUser' && issueCount >= 3) {
                     return res.status(403).send({
                         message: 'Free user issue limit reached',
                         limitReached: true
@@ -325,9 +327,22 @@ async function run() {
                 issue.priority = 'normal';
                 issue.status = 'pending';
 
-
                 issue.upvotes = 0;
                 issue.upvotedBy = [];
+
+                // timeline entry
+
+                issue.timeline = [
+                    {
+                        status: 'pending',
+                        message: `Issue reported by citizen .Name ${name}`,
+                        updatedBy: {
+                            role: 'Citizen',
+                            email: issue.senderEmail
+                        },
+                        createdAt: new Date()
+                    }
+                ];
 
 
                 const result = await issuesCollection.insertOne(issue);
@@ -615,6 +630,15 @@ async function run() {
                     });
                 }
 
+                // get issue related data from db
+                const issue = await issuesCollection.findOne({
+                    _id: new ObjectId(issueId)
+                });
+
+                if (!issue) {
+                    return res.status(404).send({ success: false, message: "Issue not found" });
+                }
+
                 //  Update the issue
                 const query = { _id: new ObjectId(issueId) };
                 const updateIssue = {
@@ -624,6 +648,19 @@ async function run() {
                         boostedBy,
                         statusMessage: `Issue boosted via payment by ${boostedBy}`,
                     },
+
+                    $push: {
+                        timeline: {
+                            status: issue.status,
+                            message: `Issue boosted via payment by ${boostedBy}`,
+                            updatedBy: {
+                                role: 'Citizen',
+                                email: boostedBy
+                            },
+                            createdAt: new Date()
+                        }
+                    }
+
 
                 };
                 const resultIssue = await issuesCollection.updateOne(query, updateIssue);
@@ -801,8 +838,12 @@ async function run() {
 
             const issue = await issuesCollection.findOne({ _id: new ObjectId(issueId) });
 
+            if (!issue) {
+                return res.status(404).send({ message: "Issue not found" });
+            }
 
-            if (issue.assignedStaff) {
+
+            if (issue.staffId) {
                 return res.status(400).send({ message: "Staff already assigned" });
             }
 
@@ -818,7 +859,17 @@ async function run() {
                         updatedAt: new Date()
                     },
 
-
+                    $push: {
+                        timeline: {
+                            status: issue.status,
+                            message: `Issue assigned to staff: ${name}`,
+                            updatedBy: {
+                                role: 'Admin',
+                                email: req.decoded_email || 'admin'
+                            },
+                            createdAt: new Date()
+                        }
+                    }
 
 
                 }
@@ -845,6 +896,18 @@ async function run() {
                         updatedAt: new Date(),
 
                     },
+
+                    $push: {
+                        timeline: {
+                            status: 'rejected',
+                            message: 'Issue rejected by admin',
+                            updatedBy: {
+                                role: 'Admin',
+                                email: req.decoded_email
+                            },
+                            createdAt: new Date()
+                        }
+                    }
 
                 }
             );
@@ -919,6 +982,18 @@ async function run() {
                         status: status,
                         statusMessage: statusMessage
                     },
+
+                    $push: {
+                        timeline: {
+                            status,
+                            message: statusMessage,
+                            updatedBy: {
+                                role: 'Staff',
+                                email: staffEmail
+                            },
+                            createdAt: new Date()
+                        }
+                    }
 
                 }
             );
