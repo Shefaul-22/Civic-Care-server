@@ -604,6 +604,7 @@ async function run() {
             }
         });
 
+        // payment success
         app.patch('/payment-success', async (req, res) => {
             try {
                 const sessionId = req.query.session_id;
@@ -1000,6 +1001,100 @@ async function run() {
 
             res.send({ modifiedCount: updateResult.modifiedCount });
         });
+
+        // Admin Manage users related api
+        app.get("/admin/users", async (req, res) => {
+            try {
+                const query = {
+                    role: { $in: ["user", "premiumUser"] }
+                };
+
+                const users = await usersCollection
+                    .find(query)
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send(users);
+            } catch (error) {
+                res.status(500).send({
+                    message: "Failed to fetch users",
+                    error: error.message
+                });
+            }
+        });
+
+
+        // Admin block & unblock related api
+        // app.patch("/admin/users/block/:id", async (req, res) => {
+        //     const id = req.params.id;
+
+        //     const result = await usersCollection.updateOne(
+        //         { _id: new ObjectId(id) },
+        //         {
+        //             $set: {
+        //                 userStatus: "blocked"
+        //             }
+        //         }
+        //     );
+
+        //     res.send({ success: true, result });
+        // });
+
+        app.patch("/admin/users/block/:id", async (req, res) => {
+
+            try {
+                const id = req.params.id;
+
+                const result = await usersCollection.updateOne(
+                    {
+                        _id: new ObjectId(id),
+                        role: { $in: ["user", "premiumUser"] }
+                    },
+
+                    {
+                        $set: { userStatus: "blocked" }
+                    }
+
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                res.send({ success: true, message: "User blocked" });
+            } catch (error) {
+                res.status(500).send({ message: error.message });
+            }
+        });
+
+
+        app.patch("/admin/users/unblock/:id", async (req, res) => {
+            try {
+                const id = req.params.id;
+
+                const result = await usersCollection.updateOne(
+                    {
+                        _id: new ObjectId(id),
+
+                        role: { $in: ["user", "premiumUser"] }
+                    },
+
+                    {
+                        $unset: { userStatus: "" }
+                    }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                res.send({ success: true, message: "User unblocked" });
+
+            } catch (error) {
+                res.status(500).send({ message: error.message });
+            }
+        });
+
 
 
 
