@@ -325,6 +325,96 @@ async function run() {
         });
 
 
+        app.get("/citizen/dashboard/summary", async (req, res) => {
+            try {
+                const { email } = req.query;
+
+                if (!email) {
+                    return res.status(400).send({ message: "Email required" });
+                }
+
+                const issueQuery = { senderEmail: email };
+
+                const totalIssues = await issuesCollection.countDocuments(issueQuery);
+                const pendingIssues = await issuesCollection.countDocuments({
+                    ...issueQuery,
+                    status: "pending"
+                });
+
+                const inProgressIssues = await issuesCollection.countDocuments({
+                    ...issueQuery,
+                    status: "in-progress"
+                });
+
+
+                const resolvedIssues = await issuesCollection.countDocuments({
+                    ...issueQuery,
+                    status: "resolved"
+                });
+
+                const payments = await paymentCollection.find({
+                    boostedBy: email,
+                    paymentStatus: "paid"
+                }).toArray();
+
+                const totalPayments = payments.reduce((sum, p) => sum + p.amount, 0);
+
+                // ChartData 
+                const paymentChart = {};
+                payments.forEach(p => {
+                    const month = new Date(p.paidAt).toISOString().slice(0, 7);
+                    paymentChart[month] = (paymentChart[month] || 0) + p.amount;
+                });
+
+                const chartData = Object.keys(paymentChart).map(m => ({
+                    month: m,
+                    total: paymentChart[m]
+                }));
+
+                res.send({
+                    totalIssues,
+                    pendingIssues,
+                    inProgressIssues,
+                    resolvedIssues,
+                    totalPayments,
+                    chartData
+                });
+
+            } catch (error) {
+                res.status(500).send({ message: error.message });
+            }
+        });
+
+        // GET /users/:email/role  (projection use , if we dont send other data)
+        app.get('/users/:email/role', verifyFBToken, async (req, res) => {
+            try {
+                const email = req.params.email;
+
+                
+                if (req.decoded_email !== email) {
+                    return res.status(403).send({ message: "Forbidden: Cannot access other user's role" });
+                }
+
+                
+                const user = await usersCollection.findOne(
+                    { email },
+                    { projection: { role: 1 } }
+                );
+
+                if (!user) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                res.send({ role: user.role || 'user' });
+
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: "Failed to fetch user role" });
+            }
+        });
+
+
+
 
         // Issues related api
         app.post('/issues', verifyFBToken, verifyBlockedUser, async (req, res) => {
@@ -828,7 +918,7 @@ async function run() {
 
         app.get("/admin/payments/by-month", async (req, res) => {
             try {
-                const { month, page = 1, limit = 10 } = req.query; 
+                const { month, page = 1, limit = 10 } = req.query;
 
                 if (!month) {
                     return res.status(400).send({ message: "Month is required" });
