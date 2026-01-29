@@ -425,7 +425,7 @@ async function run() {
         });
 
         // upvote issue
-        app.patch('/issues/:id/upvote', verifyFBToken,verifyBlockedUser, async (req, res) => {
+        app.patch('/issues/:id/upvote', verifyFBToken, verifyBlockedUser, async (req, res) => {
 
             const issueId = req.params.id;
             const userEmail = req.decoded_email;
@@ -594,10 +594,10 @@ async function run() {
 
         // ---Payment related Api---
 
-        app.post('/create-checkout-session',verifyFBToken,verifyBlockedUser, async (req, res) => {
+        app.post('/create-checkout-session', verifyFBToken, verifyBlockedUser, async (req, res) => {
             try {
                 const issueInfo = req.body;
-                const { issueId, boostedBy, issueName } = issueInfo;
+                const { issueId, boostedBy, title } = issueInfo;
 
                 console.log("Received issue info:", issueInfo);
 
@@ -613,7 +613,7 @@ async function run() {
                                 currency: 'bdt',
                                 unit_amount: amount,
                                 product_data: {
-                                    name: `Boost Issue: ${issueName}`,
+                                    name: `Boost Issue: ${title}`,
                                 },
                             },
                             quantity: 1,
@@ -621,6 +621,7 @@ async function run() {
                     ],
                     mode: 'payment',
                     metadata: {
+                        title,
                         issueId,
                         boostedBy,
                         trackingId: issueInfo.trackingId
@@ -652,7 +653,7 @@ async function run() {
                 }
 
                 // metadata from checkout session
-                const { issueId, boostedBy, issueName } = session.metadata;
+                const { issueId, boostedBy, title } = session.metadata;
 
                 // Check if this payment already exists
                 const existingPayment = await paymentCollection.findOne({ transactionId: session.payment_intent });
@@ -702,7 +703,7 @@ async function run() {
                 // Insert into paymentCollection
                 const paymentRecord = {
                     issueId,
-                    issueName,
+                    title,
                     boostedBy,
                     amount: session.amount_total / 100, // BDT
                     currency: session.currency,
@@ -801,6 +802,77 @@ async function run() {
                 res.status(500).send({ success: false, message: error.message });
             }
         });
+
+        // admin get all payments
+
+        // app.get("/admin/payments/by-month", async (req, res) => {
+        //     try {
+        //         const { month } = req.query; // e.g. 2026-01
+
+        //         if (!month) {
+        //             return res.status(400).send({ message: "Month is required" });
+        //         }
+
+        //         const payments = await paymentsCollection.find({
+        //             paidAt: {
+        //                 $gte: new Date(`${month}-01`),
+        //                 $lt: new Date(`${month}-31`)
+        //             }
+        //         }).sort({ paidAt: -1 }).toArray();
+
+        //         res.send(payments);
+        //     } catch (error) {
+        //         res.status(500).send({ message: error.message });
+        //     }
+        // });
+
+        app.get("/admin/payments/by-month", async (req, res) => {
+            try {
+                const { month, page = 1, limit = 10 } = req.query; 
+
+                if (!month) {
+                    return res.status(400).send({ message: "Month is required" });
+                }
+
+                const pageNumber = parseInt(page);
+                const limitNumber = parseInt(limit);
+                const skip = (pageNumber - 1) * limitNumber;
+
+                const startDate = new Date(`${month}-01`);
+                const endDate = new Date(startDate);
+                endDate.setMonth(endDate.getMonth() + 1);
+
+                const query = {
+                    paidAt: {
+                        $gte: startDate,
+                        $lt: endDate
+                    }
+                };
+
+                // total count
+                const totalCount = await paymentCollection.countDocuments(query);
+
+                // paginated data
+                const payments = await paymentCollection
+                    .find(query)
+                    .sort({ paidAt: -1 })
+                    .skip(skip)
+                    .limit(limitNumber)
+                    .toArray();
+
+                res.send({
+                    payments,
+                    totalCount,
+                    totalPages: Math.ceil(totalCount / limitNumber),
+                    currentPage: pageNumber
+                });
+
+            } catch (error) {
+                res.status(500).send({ message: error.message });
+            }
+        });
+
+
 
         // Get all staff
         app.get('/admin/staffs', async (req, res) => {
