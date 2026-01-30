@@ -89,6 +89,8 @@ async function run() {
 
 
         const verifyAdmin = async (req, res, next) => {
+
+
             const token = req.headers.authorization;
             if (!token) return res.status(401).send({ message: 'Unauthorized access' });
 
@@ -99,8 +101,35 @@ async function run() {
 
                 // check role in usersCollection
                 const user = await usersCollection.findOne({ email: decoded.email });
+                
                 if (!user || user.role !== 'admin') {
                     return res.status(403).send({ message: 'Forbidden: Admins only' });
+                }
+
+                req.user = user;
+                next();
+            } catch (err) {
+                console.error(err);
+                res.status(401).send({ message: 'Unauthorized access' });
+            }
+        };
+
+        const verifyStaff = async (req, res, next) => {
+
+
+            const token = req.headers.authorization;
+            if (!token) return res.status(401).send({ message: 'Unauthorized access' });
+
+            try {
+                const idToken = token.split(' ')[1];
+                const decoded = await admin.auth().verifyIdToken(idToken);
+                req.decoded_email = decoded.email;
+
+                // check role in usersCollection
+                const user = await usersCollection.findOne({ email: decoded.email });
+
+                if (!user || user.role !== 'staff') {
+                    return res.status(403).send({ message: 'Forbidden: Staff only' });
                 }
 
                 req.user = user;
@@ -387,6 +416,7 @@ async function run() {
 
         // GET /users/:email/role  (projection use , if we dont send other data)
         app.get('/users/:email/role', verifyFBToken, async (req, res) => {
+
             try {
                 const email = req.params.email;
 
@@ -1114,7 +1144,7 @@ async function run() {
         // Admin Dashboard home related get api
         app.get('/admin/dashboard/summary', verifyFBToken, verifyAdmin, async (req, res) => {
             try {
-                
+
                 const totalIssues = await issuesCollection.countDocuments();
 
                 const pendingIssues = await issuesCollection.countDocuments({
@@ -1129,7 +1159,7 @@ async function run() {
                     status: "rejected"
                 });
 
-                
+
                 const payments = await paymentCollection
                     .find({ paymentStatus: "paid" })
                     .toArray();
@@ -1159,7 +1189,7 @@ async function run() {
                     total: paymentChartMap[month]
                 }));
 
-               
+
                 const latestIssues = await issuesCollection
                     .find()
                     .sort({ createdAt: -1 })
@@ -1306,6 +1336,70 @@ async function run() {
 
             res.send({ modifiedCount: updateResult.modifiedCount });
         });
+
+        // staff dashboard home get api
+
+        app.get('/staff/dashboard/summary', verifyFBToken, verifyStaff, async (req, res) => {
+
+            const staffEmail = req.decoded_email;
+
+            const baseQuery = { staffEmail };
+
+            const totalAssigned = await issuesCollection.countDocuments(baseQuery);
+
+            const resolvedIssues = await issuesCollection.countDocuments({
+                staffEmail,
+                status: "resolved"
+            });
+
+            const pendingIssues = await issuesCollection.countDocuments({
+                staffEmail,
+                status: "pending"
+            });
+
+
+
+            const inProgressIssues = await issuesCollection.countDocuments({
+                staffEmail,
+                status: "in-progress"
+            });
+
+            const closedIssues = await issuesCollection.countDocuments({
+                staffEmail,
+                status: "closed"
+            });
+
+            const todayTasks = await issuesCollection.countDocuments({
+                staffEmail,
+                createdAt: {
+                    $gte: new Date(new Date().setHours(0, 0, 0, 0))
+                }
+            });
+
+            // Latest assigned issues
+            const latestIssues = await issuesCollection
+                .find(baseQuery)
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .project({
+                    title: 1,
+                    status: 1,
+                    priority: 1,
+                    createdAt: 1
+                })
+                .toArray();
+
+            res.send({
+                totalAssigned,
+                pendingIssues,
+                inProgressIssues,
+                resolvedIssues,
+                closedIssues,
+                todayTasks,
+                latestIssues
+            });
+        });
+
 
         // Admin Manage users related api
         app.get("/admin/users", async (req, res) => {
