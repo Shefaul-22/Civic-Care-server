@@ -390,12 +390,12 @@ async function run() {
             try {
                 const email = req.params.email;
 
-                
+
                 if (req.decoded_email !== email) {
                     return res.status(403).send({ message: "Forbidden: Cannot access other user's role" });
                 }
 
-                
+
                 const user = await usersCollection.findOne(
                     { email },
                     { projection: { role: 1 } }
@@ -1109,6 +1109,116 @@ async function run() {
             );
 
             res.send(result);
+        });
+
+        // Admin Dashboard home related get api
+        app.get('/admin/dashboard/summary', verifyFBToken, verifyAdmin, async (req, res) => {
+            try {
+                
+                const totalIssues = await issuesCollection.countDocuments();
+
+                const pendingIssues = await issuesCollection.countDocuments({
+                    status: "pending"
+                });
+
+                const resolvedIssues = await issuesCollection.countDocuments({
+                    status: "resolved"
+                });
+
+                const rejectedIssues = await issuesCollection.countDocuments({
+                    status: "rejected"
+                });
+
+                
+                const payments = await paymentCollection
+                    .find({ paymentStatus: "paid" })
+                    .toArray();
+
+                const totalPaymentReceived = payments.reduce(
+                    (sum, p) => sum + (p.amount || 0),
+                    0
+                );
+
+                // ---- CHART DATA (Issues by Status) ----
+                const issueStatusChart = [
+                    { status: "pending", count: pendingIssues },
+                    { status: "resolved", count: resolvedIssues },
+                    { status: "rejected", count: rejectedIssues },
+                ];
+
+                // ---- PAYMENT CHART (Monthly) ----
+                const paymentChartMap = {};
+
+                payments.forEach(p => {
+                    const month = new Date(p.paidAt).toISOString().slice(0, 7); // YYYY-MM
+                    paymentChartMap[month] = (paymentChartMap[month] || 0) + p.amount;
+                });
+
+                const paymentChart = Object.keys(paymentChartMap).map(month => ({
+                    month,
+                    total: paymentChartMap[month]
+                }));
+
+               
+                const latestIssues = await issuesCollection
+                    .find()
+                    .sort({ createdAt: -1 })
+                    .limit(5)
+                    .project({
+                        title: 1,
+                        status: 1,
+                        priority: 1,
+                        createdAt: 1
+                    })
+                    .toArray();
+
+                const latestPayments = await paymentCollection
+                    .find()
+                    .sort({ paidAt: -1 })
+                    .limit(5)
+                    .project({
+                        title: 1,
+                        amount: 1,
+                        boostedBy: 1,
+                        paidAt: 1
+                    })
+                    .toArray();
+
+                const latestUsers = await usersCollection
+                    .find({ role: { $ne: "admin" } })
+                    .sort({ createdAt: -1 })
+                    .limit(5)
+                    .project({
+                        name: 1,
+                        email: 1,
+                        role: 1,
+                        createdAt: 1
+                    })
+                    .toArray();
+
+                res.send({
+                    stats: {
+                        totalIssues,
+                        pendingIssues,
+                        resolvedIssues,
+                        rejectedIssues,
+                        totalPaymentReceived
+                    },
+                    charts: {
+                        issueStatusChart,
+                        paymentChart
+                    },
+                    latest: {
+                        issues: latestIssues,
+                        payments: latestPayments,
+                        users: latestUsers
+                    }
+                });
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: error.message });
+            }
         });
 
 
