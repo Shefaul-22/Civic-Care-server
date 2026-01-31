@@ -101,7 +101,7 @@ async function run() {
 
                 // check role in usersCollection
                 const user = await usersCollection.findOne({ email: decoded.email });
-                
+
                 if (!user || user.role !== 'admin') {
                     return res.status(403).send({ message: 'Forbidden: Admins only' });
                 }
@@ -134,6 +134,8 @@ async function run() {
 
                 req.user = user;
                 next();
+
+
             } catch (err) {
                 console.error(err);
                 res.status(401).send({ message: 'Unauthorized access' });
@@ -163,6 +165,7 @@ async function run() {
                 // attach user to request
                 req.user = user;
                 next();
+
             } catch (err) {
                 console.error(err);
                 res.status(401).send({ message: "Unauthorized" });
@@ -221,6 +224,7 @@ async function run() {
                 });
 
                 res.send({ url: session.url });
+
             } catch (err) {
                 console.error('Premium checkout error:', err);
                 res.status(500).send({ message: 'Failed to create premium checkout session' });
@@ -314,6 +318,46 @@ async function run() {
         //     res.send({ message: "User upgraded to premium", result });
 
         // });
+
+        // All user,staff,admin update profile route
+
+        // Update user profile (name, phone, photo)
+        app.patch('/users/profile', verifyFBToken, async (req, res) => {
+            try {
+                const { displayName, phone, photoURL } = req.body;
+                const email = req.decoded_email;
+
+                const updateDoc = {
+                    $set: {
+                        displayName,
+                        phone,
+                    }
+                };
+
+                // photo optional
+                if (photoURL) {
+                    updateDoc.$set.photo = photoURL;
+                }
+
+                const result = await usersCollection.updateOne(
+                    { email },
+                    updateDoc
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                res.send({
+                    success: true,
+                    message: "Profile updated successfully"
+                });
+
+            } catch (error) {
+                console.error("PROFILE UPDATE ERROR:", error);
+                res.status(500).send({ message: "Failed to update profile" });
+            }
+        });
 
         // get specific using query (email)
         app.get('/users', async (req, res) => {
@@ -886,7 +930,7 @@ async function run() {
         // Add new staff
         app.post('/admin/staffs', async (req, res) => {
             try {
-                const { name, email, password, phone, photo } = req.body;
+                const { displayName, email, password, phone, photoURL } = req.body;
                 const normalizedEmail = email.trim().toLowerCase();
 
                 //  Duplicate check
@@ -899,17 +943,17 @@ async function run() {
                 const firebaseUser = await admin.auth().createUser({
                     email: normalizedEmail,
                     password,
-                    displayName: name,
-                    photoURL: photo,
+                    displayName,
+                    photoURL
                 });
 
 
                 const staff = {
                     uid: firebaseUser.uid,
-                    name,
+                    displayName,
                     email: normalizedEmail,
                     phone,
-                    photo,
+                    photoURL,
                     role: "staff",
                     createdAt: new Date(),
                 };
