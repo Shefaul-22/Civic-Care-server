@@ -562,30 +562,84 @@ async function run() {
 
 
         // get all issues and search filter
-        app.get('/issues', async (req, res) => {
-            const { search, status, priority, category } = req.query;
 
-            let query = {};
+        // without pagination
+        // app.get('/issues', async (req, res) => {
+        //     const { search, status, priority, category } = req.query;
 
-            if (search) {
+        //     let query = {};
 
-                query.$or = [
-                    { title: { $regex: search, $options: "i" } },
-                    { category: { $regex: search, $options: "i" } },
-                    { senderDistrict: { $regex: search, $options: "i" } }
-                ];
+        //     if (search) {
+
+        //         query.$or = [
+        //             { title: { $regex: search, $options: "i" } },
+        //             { category: { $regex: search, $options: "i" } },
+        //             { senderDistrict: { $regex: search, $options: "i" } }
+        //         ];
+        //     }
+
+        //     if (status) query.status = status;
+        //     if (priority) query.priority = priority;
+        //     if (category) query.category = category;
+
+        //     const result = await issuesCollection
+        //         .find(query)
+        //         .sort({ upvotes: -1, createdAt: -1 }) // boosted first
+        //         .toArray();
+
+        //     res.send(result);
+        // });
+
+        // With pagination
+        app.get("/issues", async (req, res) => {
+
+            try {
+                const { search,status, priority, category, page = 1,
+                    limit = 12
+                } = req.query;
+
+                let query = {};
+
+                //  search
+                if (search) {
+                    query.$or = [
+                        { title: { $regex: search, $options: "i" } },
+                        { category: { $regex: search, $options: "i" } },
+                        { senderDistrict: { $regex: search, $options: "i" } }
+                    ];
+                }
+
+                // Filters by
+                if (status) query.status = status;
+                if (priority) query.priority = priority;
+                if (category) query.category = category;
+
+                const skip = (Number(page) - 1) * Number(limit);
+
+                // total count (for pagination)
+                const total = await issuesCollection.countDocuments(query);
+
+                const issues = await issuesCollection
+                    .find(query)
+                    .sort({
+                        priority: -1,        
+                        upvotes: -1,
+                        createdAt: -1
+                    })
+                    .skip(skip)
+                    .limit(Number(limit))
+                    .toArray();
+
+                res.send({
+                    issues,
+                    total,
+                    currentPage: Number(page),
+                    totalPages: Math.ceil(total / limit)
+                });
+
+            } catch (error) {
+                res.status(500).send({ message: "Failed to load issues" });
             }
-
-            if (status) query.status = status;
-            if (priority) query.priority = priority;
-            if (category) query.category = category;
-
-            const result = await issuesCollection
-                .find(query)
-                .sort({ upvotes: -1, createdAt: -1 }) // boosted first
-                .toArray();
-
-            res.send(result);
         });
 
         // upvote issue
