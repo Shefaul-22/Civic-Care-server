@@ -58,7 +58,7 @@ function generateTrackingId() {
     return `${prefix}-${date}-${random}`;
 }
 
-console.log(generateTrackingId());
+// console.log(generateTrackingId());
 
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -86,6 +86,12 @@ async function run() {
         const usersCollection = db.collection('users')
         const issuesCollection = db.collection('issues')
         const paymentCollection = db.collection('payments');
+
+        // prevent payment duplicate entry
+        await paymentCollection.createIndex(
+            { transactionId: 1 },
+            { unique: true }
+        );
 
 
         const verifyAdmin = async (req, res, next) => {
@@ -594,7 +600,7 @@ async function run() {
         app.get("/issues", async (req, res) => {
 
             try {
-                const { search,status, priority, category, page = 1,
+                const { search, status, priority, category, page = 1,
                     limit = 12
                 } = req.query;
 
@@ -622,7 +628,7 @@ async function run() {
                 const issues = await issuesCollection
                     .find(query)
                     .sort({
-                        priority: -1,        
+                        priority: -1,
                         upvotes: -1,
                         createdAt: -1
                     })
@@ -640,6 +646,20 @@ async function run() {
             } catch (error) {
                 res.status(500).send({ message: "Failed to load issues" });
             }
+        });
+
+        // Get latest resolved issue
+
+        app.get('/issues/resolved/latest', async (req, res) => {
+
+
+            const result = await issuesCollection.find({ status: "resolved" })
+                .sort({ updatedAt: -1 })
+                .limit(6)
+                .toArray();
+
+            res.send(result);
+
         });
 
         // upvote issue
@@ -929,7 +949,26 @@ async function run() {
                     paymentStatus: session.payment_status,
                     paidAt: new Date()
                 };
-                const resultPayment = await paymentCollection.insertOne(paymentRecord);
+
+                // const resultPayment = await paymentCollection.insertOne(paymentRecord);
+
+                // check db error when want to insert double entry
+                let resultPayment;
+
+                try {
+                    resultPayment = await paymentCollection.insertOne(paymentRecord);
+
+                } catch (err) {
+                    if (err.code === 11000) {
+                        return res.send({
+                            success: true,
+                            message: "Duplicate payment prevented",
+                            transactionId: session.payment_intent
+                        });
+                    }
+                    throw err;
+                }
+
 
                 res.send({
                     success: true,
