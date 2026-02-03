@@ -87,6 +87,19 @@ async function run() {
         const issuesCollection = db.collection('issues')
         const paymentCollection = db.collection('payments');
 
+
+        // prevent duplicate user 
+
+        await usersCollection.createIndex(
+            { email: 1 },
+            { unique: true }
+        );
+
+        await usersCollection.createIndex(
+            { uid: 1 },
+            { unique: true }
+        );
+
         // prevent payment duplicate entry
         await paymentCollection.createIndex(
             { transactionId: 1 },
