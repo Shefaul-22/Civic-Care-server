@@ -516,7 +516,8 @@ async function run() {
                 const issue = req.body;
                 const email = issue.senderEmail;
                 const name = issue.senderName;
-                console.log(name, issue);
+
+                // console.log(name, issue);
 
                 //find user
                 const user = await usersCollection.findOne({ email });
@@ -666,7 +667,12 @@ async function run() {
         app.get('/issues/resolved/latest', async (req, res) => {
 
 
-            const result = await issuesCollection.find({ status: "resolved" })
+            const result = await issuesCollection.find(
+                {
+
+                    // status: "resolved"
+                    status: { $in: ["resolved", "closed"] }
+                })
                 .sort({ updatedAt: -1 })
                 .limit(6)
                 .toArray();
@@ -850,7 +856,7 @@ async function run() {
                 const issueInfo = req.body;
                 const { issueId, boostedBy, title } = issueInfo;
 
-                console.log("Received issue info:", issueInfo);
+                // console.log("Received issue info:", issueInfo);
 
 
                 const cost = 100;
@@ -893,7 +899,7 @@ async function run() {
         app.patch('/payment-success', async (req, res) => {
             try {
                 const sessionId = req.query.session_id;
-                console.log(sessionId);
+                // console.log(sessionId);
 
                 // Retrieve session from Stripe
                 const session = await stripe.checkout.sessions.retrieve(sessionId);
@@ -1202,13 +1208,14 @@ async function run() {
             res.send(result);
         });
 
-        app.get('/admin/staffs', async (req, res) => {
+        app.get('/admin/staffs', verifyAdmin, async (req, res) => {
             const result = await usersCollection.find({ role: "staff" }).toArray();
             res.send(result);
         });
 
 
-        app.patch('/admin/issues/:id/assign', async (req, res) => {
+        app.patch('/admin/issues/:id/assign', verifyAdmin, async (req, res) => {
+
             const issueId = req.params.id;
             const { staffId, name, email } = req.body;
 
@@ -1432,11 +1439,14 @@ async function run() {
             const id = req.params.id;
             const { status, statusMessage } = req.body;
             const staffEmail = req.decoded_email;
-            console.log(staffEmail);
+
+            // console.log(staffEmail);
 
             const issue = await issuesCollection.findOne({ _id: new ObjectId(id) });
-            console.log(issue.staffEmail);
+            // console.log(issue.staffEmail);
+
             const assignedEmail = issue.staffEmail;
+
 
             // only assigned staff can change status
 
