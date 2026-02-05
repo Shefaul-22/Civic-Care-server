@@ -1,3 +1,4 @@
 node_modules
 .env
 public-care-firebase-adminsdk.json
+.vercel

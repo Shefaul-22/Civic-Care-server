@@ -80,7 +80,7 @@ app.use(express.json())
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
 
         const db = client.db('civic-care-db');
         const usersCollection = db.collection('users')
@@ -379,7 +379,7 @@ async function run() {
         });
 
         // get specific using query (email)
-        app.get('/users', async (req, res) => {
+        app.get('/users', verifyFBToken, async (req, res) => {
 
             try {
 
@@ -399,7 +399,7 @@ async function run() {
 
 
         // Get current user's issue count
-        app.get('/users/:email/issues/count', async (req, res) => {
+        app.get('/users/:email/issues/count',verifyFBToken, async (req, res) => {
             try {
                 const email = req.params.email;
                 const count = await issuesCollection.countDocuments({ senderEmail: email });
@@ -417,7 +417,7 @@ async function run() {
         });
 
 
-        app.get("/citizen/dashboard/summary", async (req, res) => {
+        app.get("/citizen/dashboard/summary",verifyFBToken, async (req, res) => {
             try {
                 const { email } = req.query;
 
@@ -611,7 +611,7 @@ async function run() {
         // });
 
         // With pagination
-        app.get("/issues", async (req, res) => {
+        app.get("/issues", verifyFBToken, async (req, res) => {
 
             try {
                 const { search, status, priority, category, page = 1,
@@ -1040,7 +1040,7 @@ async function run() {
         // -- Admin related apis ---------
 
         // Add new staff
-        app.post('/admin/staffs', async (req, res) => {
+        app.post('/admin/staffs', verifyFBToken, verifyAdmin, async (req, res) => {
             try {
                 const { displayName, email, password, phone, photoURL } = req.body;
                 const normalizedEmail = email.trim().toLowerCase();
@@ -1102,7 +1102,8 @@ async function run() {
         //     }
         // });
 
-        app.get("/admin/payments/by-month", async (req, res) => {
+        app.get("/admin/payments/by-month",verifyFBToken, async (req, res) => {
+
             try {
                 const { month, page = 1, limit = 10 } = req.query;
 
@@ -1151,7 +1152,7 @@ async function run() {
 
 
         // Get all staff
-        app.get('/admin/staffs', async (req, res) => {
+        app.get('/admin/staffs',verifyFBToken, verifyAdmin, async (req, res) => {
             try {
                 const staffs = await usersCollection.find({ role: "staff" }).toArray();
                 res.send(staffs);
@@ -1161,7 +1162,7 @@ async function run() {
         });
 
         // update staff info
-        app.patch('/admin/staffs/:id', async (req, res) => {
+        app.patch('/admin/staffs/:id',verifyAdmin, async (req, res) => {
             try {
                 const id = req.params.id;
                 const updateData = req.body;
@@ -1178,7 +1179,7 @@ async function run() {
         });
 
         // Delete staff
-        app.delete('/admin/staffs/:id', async (req, res) => {
+        app.delete('/admin/staffs/:id',verifyAdmin, async (req, res) => {
             try {
                 const id = req.params.id;
 
@@ -1200,7 +1201,7 @@ async function run() {
 
         // ----admin all Issues related apis---
 
-        app.get('/admin/issues', async (req, res) => {
+        app.get('/admin/issues',verifyAdmin, async (req, res) => {
             const result = await issuesCollection.find()
                 .sort({ priority: -1, createdAt: -1 })
                 .toArray();
@@ -1414,7 +1415,7 @@ async function run() {
 
 
         // get assigned issues for staff
-        app.get('/staff/issues', async (req, res) => {
+        app.get('/staff/issues', verifyStaff, async (req, res) => {
             const staffEmail = req.query.email;
             const status = req.query.status;
             const priority = req.query.priority;
@@ -1435,7 +1436,7 @@ async function run() {
         });
 
 
-        app.patch('/staff/issues/:id/status', verifyFBToken, async (req, res) => {
+        app.patch('/staff/issues/:id/status', verifyFBToken,verifyStaff, async (req, res) => {
             const id = req.params.id;
             const { status, statusMessage } = req.body;
             const staffEmail = req.decoded_email;
@@ -1666,8 +1667,9 @@ async function run() {
 
 
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
+
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
