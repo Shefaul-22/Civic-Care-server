@@ -611,7 +611,7 @@ async function run() {
         // });
 
         // With pagination
-        app.get("/issues", verifyFBToken, async (req, res) => {
+        app.get("/issues", async (req, res) => {
 
             try {
                 const { search, status, priority, category, page = 1,
