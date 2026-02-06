@@ -757,7 +757,7 @@ async function run() {
         });
 
 
-        app.get('/issues/:id', async (req, res) => {
+        app.get('/issues/:id', verifyFBToken, async (req, res) => {
 
             try {
 
