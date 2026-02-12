@@ -213,6 +213,7 @@ async function run() {
         })
 
 
+        // premium user related
         app.post('/create-premium-checkout-session', async (req, res) => {
             try {
                 const { email, name } = req.body;
@@ -241,8 +242,8 @@ async function run() {
                         email,
                         type: 'premium'
                     },
-                    success_url: `${process.env.SITE_DOMAIN}/profile?session_id={CHECKOUT_SESSION_ID}`,
-                    cancel_url: `${process.env.SITE_DOMAIN}/profile?payment=cancelled`
+                    success_url: `${process.env.SITE_DOMAIN}/dashboard/profile?session_id={CHECKOUT_SESSION_ID}`,
+                    cancel_url: `${process.env.SITE_DOMAIN}/dashboard/profile?payment=cancelled`
                 });
 
                 res.send({ url: session.url });
