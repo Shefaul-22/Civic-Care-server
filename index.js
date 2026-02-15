@@ -294,7 +294,7 @@ async function run() {
 
                 // Save payment history 
                 const premiumPayment = {
-                    email,
+                    boostedBy: email,
                     amount: session.amount_total / 100,
                     currency: session.currency,
                     transactionId: session.payment_intent,
@@ -416,7 +416,7 @@ async function run() {
 
                 res.send({ count, role: user.role });
             } catch (error) {
-                console.error(error);
+                // console.error(error);
                 res.status(500).send({ message: "Failed to get issue count" });
             }
         });
@@ -483,10 +483,10 @@ async function run() {
         });
 
         // GET user role
-        
+
         app.get('/users/role', verifyFBToken, async (req, res) => {
             try {
-                const email = req.query.email; 
+                const email = req.query.email;
 
                 if (req.decoded_email !== email) {
                     return res.status(403).send({ message: "Forbidden: Cannot access other user's role" });
@@ -570,7 +570,7 @@ async function run() {
                 res.send(result);
 
             } catch (error) {
-                console.error(error);
+                // console.error(error);
                 res.status(500).send({ message: 'Failed to create issue' });
             }
         });
@@ -777,7 +777,7 @@ async function run() {
 
 
             } catch (error) {
-                console.error(error);
+                // console.error(error);
                 res.status(500).send({ message: "Failed to fetch issue" });
             }
         });
@@ -1035,7 +1035,7 @@ async function run() {
                 res.send({ message: "Issue deleted successfully" });
 
             } catch (error) {
-                console.error(error);
+                // console.error(error);
                 res.status(500).send({ message: "Failed to delete issue" });
             }
         });
@@ -1078,7 +1078,7 @@ async function run() {
 
                 res.send({ success: true, insertedId: result.insertedId });
             } catch (error) {
-                console.error(error);
+                // console.error(error);
                 res.status(500).send({ success: false, message: error.message });
             }
         });
@@ -1123,12 +1123,36 @@ async function run() {
                 const endDate = new Date(startDate);
                 endDate.setMonth(endDate.getMonth() + 1);
 
+                // Fetch role from usersCollection
+                const user = await usersCollection.findOne(
+                    { email: req.decoded_email },
+                    { projection: { role: 1 } }
+                );
+
+                if (!user) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                const userRole = user.role || 'user';
+
+
                 const query = {
                     paidAt: {
                         $gte: startDate,
                         $lt: endDate
                     }
                 };
+
+                // Role-based filtering
+
+                if (userRole === 'staff') {
+                    return res.status(403).send({ message: 'Forbidden access' });
+                }
+
+                if (userRole !== 'admin') {
+                    query.boostedBy = req.decoded_email; 
+                }
+
 
                 // total count
                 const totalCount = await paymentCollection.countDocuments(query);
@@ -1408,7 +1432,7 @@ async function run() {
                 });
 
             } catch (error) {
-                console.error(error);
+                // console.error(error);
                 res.status(500).send({ message: error.message });
             }
         });
