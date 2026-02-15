@@ -25,6 +25,7 @@ admin.initializeApp({
 });
 
 const verifyFBToken = async (req, res, next) => {
+
     const token = req.headers.authorization;
     // console.log(token);
 
@@ -403,7 +404,7 @@ async function run() {
 
 
         // Get current user's issue count
-        app.get('/users/:email/issues/count',verifyFBToken, async (req, res) => {
+        app.get('/users/:email/issues/count', verifyFBToken, async (req, res) => {
             try {
                 const email = req.params.email;
                 const count = await issuesCollection.countDocuments({ senderEmail: email });
@@ -421,7 +422,7 @@ async function run() {
         });
 
 
-        app.get("/citizen/dashboard/summary",verifyFBToken, async (req, res) => {
+        app.get("/citizen/dashboard/summary", verifyFBToken, async (req, res) => {
             try {
                 const { email } = req.query;
 
@@ -481,17 +482,15 @@ async function run() {
             }
         });
 
-        // GET /users/:email/role  (projection use , if we dont send other data)
-        app.get('/users/:email/role', verifyFBToken, async (req, res) => {
-
+        // GET user role
+        
+        app.get('/users/role', verifyFBToken, async (req, res) => {
             try {
-                const email = req.params.email;
-
+                const email = req.query.email; 
 
                 if (req.decoded_email !== email) {
                     return res.status(403).send({ message: "Forbidden: Cannot access other user's role" });
                 }
-
 
                 const user = await usersCollection.findOne(
                     { email },
@@ -509,6 +508,7 @@ async function run() {
                 res.status(500).send({ message: "Failed to fetch user role" });
             }
         });
+
 
 
 
@@ -1106,7 +1106,7 @@ async function run() {
         //     }
         // });
 
-        app.get("/admin/payments/by-month",verifyFBToken, async (req, res) => {
+        app.get("/admin/payments/by-month", verifyFBToken, async (req, res) => {
 
             try {
                 const { month, page = 1, limit = 10 } = req.query;
@@ -1156,7 +1156,7 @@ async function run() {
 
 
         // Get all staff
-        app.get('/admin/staffs',verifyFBToken, verifyAdmin, async (req, res) => {
+        app.get('/admin/staffs', verifyFBToken, verifyAdmin, async (req, res) => {
             try {
                 const staffs = await usersCollection.find({ role: "staff" }).toArray();
                 res.send(staffs);
@@ -1166,7 +1166,7 @@ async function run() {
         });
 
         // update staff info
-        app.patch('/admin/staffs/:id',verifyAdmin, async (req, res) => {
+        app.patch('/admin/staffs/:id', verifyAdmin, async (req, res) => {
             try {
                 const id = req.params.id;
                 const updateData = req.body;
@@ -1183,7 +1183,7 @@ async function run() {
         });
 
         // Delete staff
-        app.delete('/admin/staffs/:id',verifyAdmin, async (req, res) => {
+        app.delete('/admin/staffs/:id', verifyAdmin, async (req, res) => {
             try {
                 const id = req.params.id;
 
@@ -1205,7 +1205,7 @@ async function run() {
 
         // ----admin all Issues related apis---
 
-        app.get('/admin/issues',verifyAdmin, async (req, res) => {
+        app.get('/admin/issues', verifyAdmin, async (req, res) => {
             const result = await issuesCollection.find()
                 .sort({ priority: -1, createdAt: -1 })
                 .toArray();
@@ -1440,7 +1440,7 @@ async function run() {
         });
 
 
-        app.patch('/staff/issues/:id/status', verifyFBToken,verifyStaff, async (req, res) => {
+        app.patch('/staff/issues/:id/status', verifyFBToken, verifyStaff, async (req, res) => {
             const id = req.params.id;
             const { status, statusMessage } = req.body;
             const staffEmail = req.decoded_email;
