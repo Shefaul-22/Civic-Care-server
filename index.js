@@ -685,6 +685,47 @@ async function run() {
 
         });
 
+        // issue statistics
+
+        app.get("/issues/statistics", async (req, res) => {
+
+            try {
+
+                const totalNum = await issuesCollection.countDocuments();
+
+                const resolved = await issuesCollection.countDocuments({
+                    status: "resolved"
+                });
+
+                const closed = await issuesCollection.countDocuments({
+                    status: "closed"
+                });
+
+                const pending = await issuesCollection.countDocuments({
+                    status: "pending"
+                });
+
+                const inProgress = await issuesCollection.countDocuments({
+                    status: "in-progress"
+                });
+
+                res.send({
+                    totalNum,
+                    resolved,
+                    closed,
+                    pending,
+                    inProgress
+                });
+
+            } catch (error) {
+
+                res.status(500).send({
+                    message: "Failed to load statistics"
+                });
+
+            }
+        });
+
         // upvote issue
         app.patch('/issues/:id/upvote', verifyFBToken, verifyBlockedUser, async (req, res) => {
 
@@ -1150,7 +1191,7 @@ async function run() {
                 }
 
                 if (userRole !== 'admin') {
-                    query.boostedBy = req.decoded_email; 
+                    query.boostedBy = req.decoded_email;
                 }
 
 
@@ -1695,8 +1736,8 @@ async function run() {
 
 
         // Send a ping to confirm a successful connection
-        // await client.db("admin").command({ ping: 1 });
-        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        await client.db("admin").command({ ping: 1 });
+        console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
     } finally {
         // Ensures that the client will close when you finish/error
