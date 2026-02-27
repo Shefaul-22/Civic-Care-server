@@ -1374,19 +1374,14 @@ async function run() {
 
                 const totalIssues = await issuesCollection.countDocuments();
 
-                const pendingIssues = await issuesCollection.countDocuments({
-                    status: "pending"
-                });
+                // ---- Status-wise counts ----
+                const pendingIssues = await issuesCollection.countDocuments({ status: "pending" });
+                const resolvedIssues = await issuesCollection.countDocuments({ status: "resolved" });
+                const rejectedIssues = await issuesCollection.countDocuments({ status: "rejected" });
+                const inProgressIssues = await issuesCollection.countDocuments({ status: "in-progress" });
+                const closedIssues = await issuesCollection.countDocuments({ status: "closed" });
 
-                const resolvedIssues = await issuesCollection.countDocuments({
-                    status: "resolved"
-                });
-
-                const rejectedIssues = await issuesCollection.countDocuments({
-                    status: "rejected"
-                });
-
-
+                // ---- Payments ----
                 const payments = await paymentCollection
                     .find({ paymentStatus: "paid" })
                     .toArray();
@@ -1399,66 +1394,54 @@ async function run() {
                 // ---- CHART DATA (Issues by Status) ----
                 const issueStatusChart = [
                     { status: "pending", count: pendingIssues },
+                    { status: "in-progress", count: inProgressIssues },
                     { status: "resolved", count: resolvedIssues },
                     { status: "rejected", count: rejectedIssues },
+                    { status: "closed", count: closedIssues }
                 ];
 
-                // ---- PAYMENT CHART (Monthly) ----
+                // ---- Payment chart (Monthly) ----
                 const paymentChartMap = {};
-
                 payments.forEach(p => {
                     const month = new Date(p.paidAt).toISOString().slice(0, 7); // YYYY-MM
                     paymentChartMap[month] = (paymentChartMap[month] || 0) + p.amount;
                 });
-
                 const paymentChart = Object.keys(paymentChartMap).map(month => ({
                     month,
                     total: paymentChartMap[month]
                 }));
 
-
+                // ---- Latest entries ----
                 const latestIssues = await issuesCollection
                     .find()
                     .sort({ createdAt: -1 })
                     .limit(5)
-                    .project({
-                        title: 1,
-                        status: 1,
-                        priority: 1,
-                        createdAt: 1
-                    })
+                    .project({ title: 1, status: 1, priority: 1, createdAt: 1 })
                     .toArray();
 
                 const latestPayments = await paymentCollection
                     .find()
                     .sort({ paidAt: -1 })
                     .limit(5)
-                    .project({
-                        title: 1,
-                        amount: 1,
-                        boostedBy: 1,
-                        paidAt: 1
-                    })
+                    .project({ title: 1, amount: 1, boostedBy: 1, paidAt: 1 })
                     .toArray();
 
                 const latestUsers = await usersCollection
                     .find({ role: { $ne: "admin" } })
                     .sort({ createdAt: -1 })
                     .limit(5)
-                    .project({
-                        name: 1,
-                        email: 1,
-                        role: 1,
-                        createdAt: 1
-                    })
+                    .project({ name: 1, email: 1, role: 1, createdAt: 1 })
                     .toArray();
 
+               
                 res.send({
                     stats: {
                         totalIssues,
                         pendingIssues,
+                        inProgressIssues,
                         resolvedIssues,
                         rejectedIssues,
+                        closedIssues,
                         totalPaymentReceived
                     },
                     charts: {
@@ -1473,7 +1456,6 @@ async function run() {
                 });
 
             } catch (error) {
-                // console.error(error);
                 res.status(500).send({ message: error.message });
             }
         });
