@@ -374,6 +374,7 @@ async function run() {
 
                 res.send({
                     success: true,
+                    modifiedCount: result.modifiedCount,
                     message: "Profile updated successfully"
                 });
 
@@ -1234,15 +1235,34 @@ async function run() {
         app.patch('/admin/staffs/:id', verifyAdmin, async (req, res) => {
             try {
                 const id = req.params.id;
-                const updateData = req.body;
+                const { name, phone } = req.body; 
+
+                const updateDoc = {
+                    $set: {
+                        displayName: name, 
+                        phone: phone
+                    }
+                };
 
                 const result = await usersCollection.updateOne(
                     { _id: new ObjectId(id), role: "staff" },
-                    { $set: updateData }
+                    updateDoc
                 );
 
-                res.send(result);
+               
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ success: false, message: "Staff not found" });
+                }
+
+                
+                res.send({
+                    success: true,
+                    modifiedCount: result.modifiedCount,
+                    message: "Staff updated successfully"
+                });
+
             } catch (err) {
+                console.error("Staff Update Error:", err);
                 res.status(500).send({ success: false, message: err.message });
             }
         });
@@ -1433,7 +1453,7 @@ async function run() {
                     .project({ name: 1, email: 1, role: 1, createdAt: 1 })
                     .toArray();
 
-               
+
                 res.send({
                     stats: {
                         totalIssues,
@@ -1718,8 +1738,8 @@ async function run() {
 
 
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
     } finally {
         // Ensures that the client will close when you finish/error
