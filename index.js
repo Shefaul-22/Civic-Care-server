@@ -433,41 +433,46 @@ async function run() {
 
                 const issueQuery = { senderEmail: email };
 
-                const totalIssues = await issuesCollection.countDocuments(issueQuery);
-                const pendingIssues = await issuesCollection.countDocuments({
-                    ...issueQuery,
-                    status: "pending"
-                });
+                // Parallel execution for better performance
+                const [
+                    totalIssues,
+                    pendingIssues,
+                    inProgressIssues,
+                    resolvedIssues,
+                    rejectedIssues,
+                    payments
+                ] = await Promise.all([
+                    issuesCollection.countDocuments(issueQuery),
+                    issuesCollection.countDocuments({ ...issueQuery, status: "pending" }),
+                    issuesCollection.countDocuments({ ...issueQuery, status: "in-progress" }),
+                    issuesCollection.countDocuments({ ...issueQuery, status: "resolved" }),
+                    issuesCollection.countDocuments({ ...issueQuery, status: "rejected" }),
+                    paymentCollection.find({ boostedBy: email, paymentStatus: "paid" }).toArray()
+                ]);
 
-                const inProgressIssues = await issuesCollection.countDocuments({
-                    ...issueQuery,
-                    status: "in-progress"
-                });
+                const totalPayments = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
+                // Pie Chart Data (Issues by Status)
+                const statusPieData = [
+                    { name: "Pending", value: pendingIssues, color: "#FBBF24" },    // Yellow
+                    { name: "In Progress", value: inProgressIssues, color: "#3B82F6" }, // Blue
+                    { name: "Resolved", value: resolvedIssues, color: "#10B981" },   // Green
+                    { name: "Rejected", value: rejectedIssues, color: "#EF4444" }    // Red
+                ].filter(item => item.value > 0);
 
-                const resolvedIssues = await issuesCollection.countDocuments({
-                    ...issueQuery,
-                    status: "resolved"
-                });
-
-                const payments = await paymentCollection.find({
-                    boostedBy: email,
-                    paymentStatus: "paid"
-                }).toArray();
-
-                const totalPayments = payments.reduce((sum, p) => sum + p.amount, 0);
-
-                // ChartData 
-                const paymentChart = {};
+                // Bar Chart Data (Monthly Payments)
+                const paymentChartMap = {};
                 payments.forEach(p => {
-                    const month = new Date(p.paidAt).toISOString().slice(0, 7);
-                    paymentChart[month] = (paymentChart[month] || 0) + p.amount;
+                    if (p.paidAt) {
+                        const month = new Date(p.paidAt).toISOString().slice(0, 7);
+                        paymentChartMap[month] = (paymentChartMap[month] || 0) + p.amount;
+                    }
                 });
 
-                const chartData = Object.keys(paymentChart).map(m => ({
+                const chartData = Object.keys(paymentChartMap).map(m => ({
                     month: m,
-                    total: paymentChart[m]
-                }));
+                    total: paymentChartMap[m]
+                })).sort((a, b) => a.month.localeCompare(b.month));
 
                 res.send({
                     totalIssues,
@@ -475,7 +480,8 @@ async function run() {
                     inProgressIssues,
                     resolvedIssues,
                     totalPayments,
-                    chartData
+                    chartData,
+                    statusPieData
                 });
 
             } catch (error) {
@@ -1235,11 +1241,11 @@ async function run() {
         app.patch('/admin/staffs/:id', verifyAdmin, async (req, res) => {
             try {
                 const id = req.params.id;
-                const { name, phone } = req.body; 
+                const { name, phone } = req.body;
 
                 const updateDoc = {
                     $set: {
-                        displayName: name, 
+                        displayName: name,
                         phone: phone
                     }
                 };
@@ -1249,12 +1255,12 @@ async function run() {
                     updateDoc
                 );
 
-               
+
                 if (result.matchedCount === 0) {
                     return res.status(404).send({ success: false, message: "Staff not found" });
                 }
 
-                
+
                 res.send({
                     success: true,
                     modifiedCount: result.modifiedCount,
@@ -1391,96 +1397,72 @@ async function run() {
         // Admin Dashboard home related get api
         app.get('/admin/dashboard/summary', verifyFBToken, verifyAdmin, async (req, res) => {
             try {
+                const [
+                    totalIssues, pendingIssues, resolvedIssues, rejectedIssues, inProgressIssues, closedIssues,
+                    payments,
+                    latestIssues, latestPayments, latestUsers,
+                    
+                    totalRegularUsers,
+                    totalPremiumUsers,
+                    totalStaff
+                ] = await Promise.all([
+                    issuesCollection.countDocuments(),
+                    issuesCollection.countDocuments({ status: "pending" }),
+                    issuesCollection.countDocuments({ status: "resolved" }),
+                    issuesCollection.countDocuments({ status: "rejected" }),
+                    issuesCollection.countDocuments({ status: "in-progress" }),
+                    issuesCollection.countDocuments({ status: "closed" }),
+                    paymentCollection.find({ paymentStatus: "paid" }).toArray(),
+                    issuesCollection.find().sort({ createdAt: -1 }).limit(5).project({ title: 1, status: 1, createdAt: 1 }).toArray(),
+                    paymentCollection.find().sort({ paidAt: -1 }).limit(5).project({ amount: 1, boostedBy: 1, paidAt: 1 }).toArray(),
+                    usersCollection.find({ role: { $ne: "admin" } }).sort({ createdAt: -1 }).limit(5).project({ displayName: 1, email: 1, role: 1, createdAt: 1 }).toArray(),
+                    
+                    usersCollection.countDocuments({ role: "user" }),
+                    usersCollection.countDocuments({ role: "premiumUser" }),
+                    usersCollection.countDocuments({ role: "staff" })
+                ]);
 
-                const totalIssues = await issuesCollection.countDocuments();
+                const totalPaymentReceived = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
-                // ---- Status-wise counts ----
-                const pendingIssues = await issuesCollection.countDocuments({ status: "pending" });
-                const resolvedIssues = await issuesCollection.countDocuments({ status: "resolved" });
-                const rejectedIssues = await issuesCollection.countDocuments({ status: "rejected" });
-                const inProgressIssues = await issuesCollection.countDocuments({ status: "in-progress" });
-                const closedIssues = await issuesCollection.countDocuments({ status: "closed" });
-
-                // ---- Payments ----
-                const payments = await paymentCollection
-                    .find({ paymentStatus: "paid" })
-                    .toArray();
-
-                const totalPaymentReceived = payments.reduce(
-                    (sum, p) => sum + (p.amount || 0),
-                    0
-                );
-
-                // ---- CHART DATA (Issues by Status) ----
-                const issueStatusChart = [
-                    { status: "pending", count: pendingIssues },
-                    { status: "in-progress", count: inProgressIssues },
-                    { status: "resolved", count: resolvedIssues },
-                    { status: "rejected", count: rejectedIssues },
-                    { status: "closed", count: closedIssues }
-                ];
-
-                // ---- Payment chart (Monthly) ----
+                // Payment Chart (Monthly)
                 const paymentChartMap = {};
                 payments.forEach(p => {
-                    const month = new Date(p.paidAt).toISOString().slice(0, 7); // YYYY-MM
-                    paymentChartMap[month] = (paymentChartMap[month] || 0) + p.amount;
+                    if (p.paidAt) {
+                        const month = new Date(p.paidAt).toLocaleString('default', { month: 'short' });
+                        paymentChartMap[month] = (paymentChartMap[month] || 0) + (p.amount || 0);
+                    }
                 });
+
                 const paymentChart = Object.keys(paymentChartMap).map(month => ({
                     month,
                     total: paymentChartMap[month]
                 }));
 
-                // ---- Latest entries ----
-                const latestIssues = await issuesCollection
-                    .find()
-                    .sort({ createdAt: -1 })
-                    .limit(5)
-                    .project({ title: 1, status: 1, priority: 1, createdAt: 1 })
-                    .toArray();
-
-                const latestPayments = await paymentCollection
-                    .find()
-                    .sort({ paidAt: -1 })
-                    .limit(5)
-                    .project({ title: 1, amount: 1, boostedBy: 1, paidAt: 1 })
-                    .toArray();
-
-                const latestUsers = await usersCollection
-                    .find({ role: { $ne: "admin" } })
-                    .sort({ createdAt: -1 })
-                    .limit(5)
-                    .project({ name: 1, email: 1, role: 1, createdAt: 1 })
-                    .toArray();
-
-
                 res.send({
-                    stats: {
-                        totalIssues,
-                        pendingIssues,
-                        inProgressIssues,
-                        resolvedIssues,
-                        rejectedIssues,
-                        closedIssues,
-                        totalPaymentReceived
-                    },
+                    stats: { totalIssues, pendingIssues, inProgressIssues, resolvedIssues, rejectedIssues, closedIssues, totalPaymentReceived },
                     charts: {
-                        issueStatusChart,
+                        issueStatusPie: [
+                            { name: "Pending", value: pendingIssues, color: "#fbbd23" },
+                            { name: "In-Progress", value: inProgressIssues, color: "#3abff8" },
+                            { name: "Resolved", value: resolvedIssues, color: "#36d399" },
+                            { name: "Rejected", value: rejectedIssues, color: "#f87272" },
+                            { name: "Closed", value: closedIssues, color: "#a6adbb" }
+                        ],
+                        
+                        userRolePie: [
+                            { name: "Regular Users", value: totalRegularUsers, color: "#9ca3af" }, // Gray
+                            { name: "Premium Users", value: totalPremiumUsers, color: "#fa0bd2" }, // Your Signature Pink
+                            { name: "Staff", value: totalStaff, color: "#641ae3" }                // Purple
+                        ],
                         paymentChart
                     },
-                    latest: {
-                        issues: latestIssues,
-                        payments: latestPayments,
-                        users: latestUsers
-                    }
+                    latest: { issues: latestIssues, payments: latestPayments, users: latestUsers }
                 });
 
             } catch (error) {
                 res.status(500).send({ message: error.message });
             }
         });
-
-
 
         // --- Staff related apis---
 
@@ -1572,43 +1554,38 @@ async function run() {
         // staff dashboard home get api
 
         app.get('/staff/dashboard/summary', verifyFBToken, verifyStaff, async (req, res) => {
-
             const staffEmail = req.decoded_email;
-
             const baseQuery = { staffEmail };
 
-            const totalAssigned = await issuesCollection.countDocuments(baseQuery);
 
-            const resolvedIssues = await issuesCollection.countDocuments({
-                staffEmail,
-                status: "resolved"
-            });
+            const [
+                totalAssigned,
+                resolvedIssues,
+                pendingIssues,
+                inProgressIssues,
+                closedIssues,
+                todayTasks
+            ] = await Promise.all([
+                issuesCollection.countDocuments(baseQuery),
+                issuesCollection.countDocuments({ ...baseQuery, status: "resolved" }),
+                issuesCollection.countDocuments({ ...baseQuery, status: "pending" }),
+                issuesCollection.countDocuments({ ...baseQuery, status: "in-progress" }),
+                issuesCollection.countDocuments({ ...baseQuery, status: "closed" }),
+                issuesCollection.countDocuments({
+                    ...baseQuery,
+                    createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+                })
+            ]);
 
-            const pendingIssues = await issuesCollection.countDocuments({
-                staffEmail,
-                status: "pending"
-            });
+
+            const statusPieData = [
+                { name: "Pending", value: pendingIssues, color: "#FBBF24" },
+                { name: "In Progress", value: inProgressIssues, color: "#3B82F6" },
+                { name: "Resolved", value: resolvedIssues, color: "#10B981" },
+                { name: "Closed", value: closedIssues, color: "#6B7280" },
+            ].filter(item => item.value > 0);
 
 
-
-            const inProgressIssues = await issuesCollection.countDocuments({
-                staffEmail,
-                status: "in-progress"
-            });
-
-            const closedIssues = await issuesCollection.countDocuments({
-                staffEmail,
-                status: "closed"
-            });
-
-            const todayTasks = await issuesCollection.countDocuments({
-                staffEmail,
-                createdAt: {
-                    $gte: new Date(new Date().setHours(0, 0, 0, 0))
-                }
-            });
-
-            // Latest assigned issues
             const latestIssues = await issuesCollection
                 .find(baseQuery)
                 .sort({ createdAt: -1 })
@@ -1628,6 +1605,7 @@ async function run() {
                 resolvedIssues,
                 closedIssues,
                 todayTasks,
+                statusPieData,
                 latestIssues
             });
         });
